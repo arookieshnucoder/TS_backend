@@ -1,9 +1,3 @@
-import { Router } from "express";
-
-const router = Router();
-
-router.get("/", (_request, response) => {
-  response.json({ status: "ok" });
-});
-
-export default router;
+// Compatibility entry for the original route import; new code uses the module.
+import { createHealthModule } from "../modules/health/health.module.js";
+export default createHealthModule();

@@ -1,7 +1,3 @@
-import app from "./app.js";
+import { startServer } from "./bootstrap/server.js";
 
-const port = Number(process.env.PORT ?? 3000);
-
-app.listen(port, () => {
-  console.log(`API listening on http://localhost:${port}`);
-});
+startServer();

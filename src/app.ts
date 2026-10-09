@@ -1,16 +1,26 @@
-import "dotenv/config";
 import cors from "cors";
 import express from "express";
-import healthRouter from "./routes/health.js";
+import { createDependencies, type AppDependencies } from "./bootstrap/container.js";
+import { loadConfig, type AppConfig } from "./config/env.js";
+import { requestContext } from "./common/http/request-context.js";
+import { errorHandler, notFoundHandler } from "./common/http/error-handler.js";
+import { createHealthModule } from "./modules/health/health.module.js";
+import { createChatModule } from "./modules/chat/chat.module.js";
 
-const app = express();
+export function createApp(
+  config: AppConfig = loadConfig(),
+  dependencies: AppDependencies = createDependencies()
+) {
+  const app = express();
+  app.disable("x-powered-by");
+  app.use(requestContext(dependencies.logger));
+  app.use(cors({ origin: config.frontendOrigin, exposedHeaders: ["X-Request-Id"] }));
+  app.use(express.json({ limit: "1mb" }));
+  app.use("/api/health", createHealthModule());
+  app.use("/api/chat", createChatModule(dependencies.chatSessionRepository));
+  app.use(notFoundHandler);
+  app.use(errorHandler(dependencies.logger));
+  return app;
+}
 
-app.use(
-  cors({
-    origin: process.env.FRONTEND_ORIGIN ?? "http://localhost:5173"
-  })
-);
-app.use(express.json());
-app.use("/api/health", healthRouter);
-
-export default app;
+export default createApp;
