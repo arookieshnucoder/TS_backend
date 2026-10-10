@@ -2,6 +2,7 @@ import { createApp } from "../app.js";
 import { loadConfig } from "../config/env.js";
 import { logger } from "../common/logging/logger.js";
 
+// 执行服务器启动逻辑
 export function startServer() {
   const config = loadConfig();
   const app = createApp(config);

@@ -12,6 +12,7 @@ export function createApp(
   dependencies: AppDependencies = createDependencies()
 ) {
   const app = express();
+  // header 不带 x-powered-by
   app.disable("x-powered-by");
   app.use(requestContext(dependencies.logger));
   app.use(cors({ origin: config.frontendOrigin, exposedHeaders: ["X-Request-Id"] }));
@@ -20,6 +21,7 @@ export function createApp(
   app.use("/api/chat", createChatModule(dependencies.chatSessionRepository));
   app.use(notFoundHandler);
   app.use(errorHandler(dependencies.logger));
+  // TODO: 可以在这里添加更多的中间件，例如请求日志、身份验证等。
   return app;
 }
 
