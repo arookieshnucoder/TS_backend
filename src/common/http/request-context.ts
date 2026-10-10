@@ -9,6 +9,7 @@ export function requestContext(logger: Logger): RequestHandler {
     const startedAt = performance.now();
     response.locals.requestId = requestId;
     response.setHeader("X-Request-Id", requestId);
+    // 写日志
     response.once("finish", () => {
       logger.info("http.request", {
         requestId,

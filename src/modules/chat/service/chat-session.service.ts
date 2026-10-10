@@ -7,6 +7,7 @@ export class ChatSessionService {
   constructor(private readonly repository: ChatSessionRepository) {}
 
   async create(title: string): Promise<ChatSession> {
+    // TODO: 改一下雪花算法生成UUID
     const session: ChatSession = { id: randomUUID(), title, createdAt: new Date() };
     await this.repository.save(session);
     return session;
