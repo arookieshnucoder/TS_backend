@@ -1,0 +1,137 @@
+name: Release full stack
+on:
+  workflow_dispatch:
+    inputs:
+      frontend_ref:
+        description: Frontend branch, tag or commit SHA (must contain its Dockerfile)
+        required: true
+        default: feature/inifront
+        type: string
+      deploy_windows:
+        description: Deploy the tested images to the configured Windows runner
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: ragagent-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      backend_image: ${{ steps.published.outputs.backend_image }}
+      frontend_image: ${{ steps.published.outputs.frontend_image }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: backend
+          clean: false
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ vars.FRONTEND_REPOSITORY || 'arookieshnucoder/TS_frontend' }}
+          ref: ${{ inputs.frontend_ref }}
+          token: ${{ secrets.SOURCE_READ_TOKEN || github.token }}
+          path: frontend
+          clean: false
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Test both repositories
+        run: |
+          npm --prefix backend ci
+          npm --prefix frontend ci
+          npm --prefix backend test
+          npm --prefix frontend test
+      - name: Assign a paired release version
+        env:
+          OWNER: ${{ github.repository_owner }}
+          RELEASE_ID: release-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          echo "BACKEND_IMAGE=ghcr.io/${OWNER,,}/ragagent-backend:$RELEASE_ID" >> "$GITHUB_ENV"
+          echo "FRONTEND_IMAGE=ghcr.io/${OWNER,,}/ragagent-frontend:$RELEASE_ID" >> "$GITHUB_ENV"
+      - name: Build and smoke-test the actual stack
+        shell: pwsh
+        run: ./backend/scripts/deploy.ps1 -Mode Build -EnvFile ./backend/deploy/.env.example
+      - name: Test real Elasticsearch hybrid memory
+        shell: pwsh
+        run: |
+          Get-Content -Raw backend/scripts/smoke-memory.mjs | docker compose --env-file backend/deploy/.env.example -f backend/compose.yml exec -T backend node --input-type=module
+          if ($LASTEXITCODE -ne 0) { throw 'Elasticsearch memory smoke test failed.' }
+      - name: Publish the images that passed smoke tests
+        id: published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
+          docker push "$BACKEND_IMAGE"
+          docker push "$FRONTEND_IMAGE"
+          backend_digest=$(docker image inspect "$BACKEND_IMAGE" --format '{{index .RepoDigests 0}}')
+          frontend_digest=$(docker image inspect "$FRONTEND_IMAGE" --format '{{index .RepoDigests 0}}')
+          echo "backend_image=$backend_digest" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=$frontend_digest" >> "$GITHUB_OUTPUT"
+          mkdir -p release/deploy release/scripts
+          cp backend/compose.yml release/compose.yml
+          cp backend/scripts/deploy.ps1 release/scripts/deploy.ps1
+          cp backend/deploy/.env.example release/deploy/.env.example
+          printf 'BACKEND_IMAGE=%s\nFRONTEND_IMAGE=%s\nBACKEND_COMMIT=%s\nFRONTEND_COMMIT=%s\n' "$backend_digest" "$frontend_digest" "$(git -C backend rev-parse HEAD)" "$(git -C frontend rev-parse HEAD)" > release/images.env
+          printf 'Backend image: %s\n\nFrontend image: %s\n' "$backend_digest" "$frontend_digest" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ragagent-release
+          path: release/
+          include-hidden-files: true
+          if-no-files-found: error
+      - name: Show startup diagnostics on failure
+        if: failure()
+        run: docker compose --env-file backend/deploy/.env.example -f backend/compose.yml logs --tail=80
+      - name: Stop CI containers without deleting data
+        if: always()
+        run: docker compose --env-file backend/deploy/.env.example -f backend/compose.yml stop
+
+  deploy-windows:
+    if: ${{ inputs.deploy_windows }}
+    needs: publish
+    runs-on: [self-hosted, Windows, X64, ragagent-deploy]
+    environment: windows-production
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: ragagent-release
+          path: release-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Pull and deploy exact tested digests
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          EMBEDDING_API_KEY: ${{ secrets.EMBEDDING_API_KEY }}
+          INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
+          DEPLOY_ENV_FILE: ${{ vars.DEPLOY_ENV_FILE }}
+          BACKEND_IMAGE: ${{ needs.publish.outputs.backend_image }}
+          FRONTEND_IMAGE: ${{ needs.publish.outputs.frontend_image }}
+          RELEASE_DIRECTORY: release-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          if (-not $env:DEPLOY_ENV_FILE -or -not (Test-Path -LiteralPath $env:DEPLOY_ENV_FILE)) {
+            throw 'Set windows-production variable DEPLOY_ENV_FILE to an existing absolute path on this Windows runner.'
+          }
+          if (-not $env:LLM_API_KEY) { throw 'Set windows-production secret LLM_API_KEY before deployment.' }
+          $env:GH_TOKEN | docker login ghcr.io -u $env:GH_ACTOR --password-stdin
+          if ($LASTEXITCODE -ne 0) { throw 'GHCR login failed.' }
+          & "$env:RELEASE_DIRECTORY/scripts/deploy.ps1" -Mode Pull -EnvFile $env:DEPLOY_ENV_FILE -BackendImage $env:BACKEND_IMAGE -FrontendImage $env:FRONTEND_IMAGE

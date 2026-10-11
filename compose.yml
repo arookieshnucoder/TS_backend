@@ -1,0 +1,93 @@
+name: ${COMPOSE_PROJECT_NAME:-ragagent}
+services:
+  frontend:
+    image: ${FRONTEND_IMAGE:-ragagent-frontend:local}
+    build:
+      context: ../frontend
+    restart: unless-stopped
+    ports:
+      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - app
+
+  backend:
+    image: ${BACKEND_IMAGE:-ragagent-backend:local}
+    build:
+      context: .
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
+      SESSION_DATA_DIR: /app/data/sessions
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-flash}
+      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-120000}
+      LLM_MAX_INPUT_TOKENS: ${LLM_MAX_INPUT_TOKENS:-32768}
+      CONTEXT_CHUNK_TOKENS: ${CONTEXT_CHUNK_TOKENS:-512}
+      CONTEXT_OVERLAP_RATIO: ${CONTEXT_OVERLAP_RATIO:-0.15}
+      CONTEXT_COMPRESSION_TRIGGER: ${CONTEXT_COMPRESSION_TRIGGER:-0.65}
+      CONTEXT_COMPRESSION_TARGET: ${CONTEXT_COMPRESSION_TARGET:-0.08}
+      CONTEXT_TOKENIZER: ${CONTEXT_TOKENIZER:-cl100k_base}
+      CONTEXT_TOKEN_SAFETY_FACTOR: ${CONTEXT_TOKEN_SAFETY_FACTOR:-1.2}
+      AGENT_MAX_TOOL_STEPS: ${AGENT_MAX_TOOL_STEPS:-4}
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_INDEX: ${ELASTICSEARCH_INDEX:-chat-memory-v1}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
+    volumes:
+      - sessions:/app/data/sessions
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - app
+      - memory
+
+  elasticsearch:
+    image: ${ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:8.19.0}
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms512m -Xmx512m}
+    volumes:
+      - elasticsearch:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      start_period: 60s
+      retries: 18
+    networks:
+      - memory
+
+networks:
+  app:
+  memory:
+    internal: true
+volumes:
+  sessions:
+  elasticsearch:

@@ -1,0 +1,13 @@
+.git
+.github
+node_modules
+dist
+data
+docs
+tests
+scripts
+deploy
+.env
+.env.*
+*.log
+*.md

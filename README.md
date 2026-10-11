@@ -122,3 +122,7 @@ npm run build
 ## Agent 与上下文管理
 
 参阅 [配置、工具接口、检索及测试说明](docs/context-harness.md)。默认启用上下文 harness，配置 Elasticsearch 与 embedding 后启用跨会话混合检索。
+
+## Docker 与 CI/CD
+
+在 Windows 的 Docker Desktop（Linux containers）启动后运行 `./scripts/deploy.ps1`，会构建前后端独立镜像及启动 Elasticsearch。完整配置、GitHub 一键发布与 Windows runner 设置见 [部署说明](docs/deployment.md)。

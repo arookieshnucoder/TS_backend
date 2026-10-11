@@ -9,3 +9,6 @@ docs/*
 !docs/context-harness.md
 
 data/
+
+!docs/deployment.md
+deploy/.env
