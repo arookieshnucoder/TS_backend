@@ -2,7 +2,8 @@
  * 项目的基本环境配置，包括端口、前端监听地址、开发环境等。
  */
 
-import "dotenv/config";
+import { fileURLToPath } from "node:url";
+import { loadEnvironment } from "./environment.js";
 
 
 /**
@@ -11,6 +12,12 @@ import "dotenv/config";
  */
 export interface AppConfig {
   // 后端端口
+  sessionDataDir: string;
+  internalApiToken?: string;
+  llmApiKey?: string;
+  llmModel: string;
+  llmTimeoutMs: number;
+  llmBaseUrl?: string;
   port: number;
   // 前端监听端口
   frontendOrigin: string;
@@ -20,15 +27,15 @@ export interface AppConfig {
   shutdownTimeoutMs: number;
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  // 后端默认占用3000端口
-  const rawPort = env.PORT ?? "3000";
+export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfig {
+  // 后端默认占用8080端口
+  const rawPort = env.PORT ?? "8080";
   const port = Number(rawPort);
   if (!/^\d+$/.test(rawPort) || !Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("PORT must be an integer between 1 and 65535");
   }
-  // 本地默认只能用5173端口作为前端origin
-  const frontendOrigin = env.FRONTEND_ORIGIN ?? "http://localhost:5173";
+  // 本地默认只能用3000端口作为前端origin
+  const frontendOrigin = env.FRONTEND_ORIGIN ?? "http://localhost:3000";
   let origin: URL;
   try {
     origin = new URL(frontendOrigin);
@@ -45,5 +52,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
 
   // TODO: 未来加入更多环境变量配置，以及CI/CD相关的环境变量管理，按照业务需求加
-  return { port, frontendOrigin, nodeEnv, shutdownTimeoutMs: 5000 };
+  const llmBaseUrl = env.LLM_BASE_URL ?? "https://api.deepseek.com";
+  const llmTimeoutMs = Number(env.LLM_TIMEOUT_MS ?? "120000");
+  if (!Number.isInteger(llmTimeoutMs) || llmTimeoutMs < 1 || llmTimeoutMs > 600000) throw new Error("LLM_TIMEOUT_MS must be 1..600000");
+  if (llmBaseUrl) {
+    const url = new URL(llmBaseUrl);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Invalid LLM_BASE_URL");
+  }
+  return { port, frontendOrigin, nodeEnv, shutdownTimeoutMs: 5000,
+    sessionDataDir: env.SESSION_DATA_DIR ?? fileURLToPath(new URL("../../data/sessions/", import.meta.url)),
+    internalApiToken: env.INTERNAL_API_TOKEN,
+    llmApiKey: env.LLM_API_KEY,
+    llmModel: env.LLM_MODEL ?? "deepseek-flash", llmBaseUrl, llmTimeoutMs };
 }

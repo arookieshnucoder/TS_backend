@@ -1,11 +1,11 @@
-import { randomUUID } from "node:crypto";
+import { generateId } from "../../utils/snowflake.js";
 import type { RequestHandler } from "express";
 import type { Logger } from "../logging/logger.js";
 
 export function requestContext(logger: Logger): RequestHandler {
   return (request, response, next) => {
     // Generate a server-owned ID; do not trust arbitrary incoming header values.
-    const requestId = randomUUID();
+    const requestId = generateId();
     const startedAt = performance.now();
     response.locals.requestId = requestId;
     response.setHeader("X-Request-Id", requestId);

@@ -1,5 +1,6 @@
+import { HttpStatus } from "../../../common/http/http-status.js";
 export class HealthService {
-  check(): { status: "ok" } {
-    return { status: "ok" };
+  check(): { httpStatusCode: typeof HttpStatus.OK } {
+    return { httpStatusCode: HttpStatus.OK };
   }
 }

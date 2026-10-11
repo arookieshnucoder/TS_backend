@@ -5,6 +5,7 @@ export class HealthController {
   constructor(private readonly service: HealthService) {}
 
   readonly check: RequestHandler = (_request, response) => {
-    response.json(this.service.check());
+    const result = this.service.check();
+    response.status(result.httpStatusCode).json(result);
   };
 }

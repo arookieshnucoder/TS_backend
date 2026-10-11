@@ -1,17 +1,26 @@
-import { InMemoryChatSessionRepository } from "../infrastructure/persistence/memory/in-memory-chat-session.repository.js";
+import { errorContainer, type ErrorContainer } from "../common/errors/error-container.js";
+import { JsonChatSessionRepository } from "../infrastructure/persistence/json/json-chat-session.repository.js";
+import { LangChainChatModel } from "../infrastructure/llm/langchain-chat-model.js";
 import type { ChatSessionRepository } from "../modules/chat/repository/chat-session.repository.js";
+import type { ChatModel } from "../modules/chat/service/chat-model.js";
+import { loadConfig, type AppConfig } from "../config/env.js";
 import { logger, type Logger } from "../common/logging/logger.js";
 
+
 export interface AppDependencies {
+  errors: ErrorContainer;
   chatSessionRepository: ChatSessionRepository;
+  chatModel: ChatModel;
   logger: Logger;
 }
 
-// 目前是memory mock实现，后续可以持久化接入相关数据库
-// Composition root: select concrete implementations here, not in business services.
-export function createDependencies(overrides: Partial<AppDependencies> = {}): AppDependencies {
+
+export function createDependencies(overrides: Partial<AppDependencies> = {}, config: AppConfig = loadConfig()): AppDependencies {
+  const errors = overrides.errors ?? errorContainer;
   return {
-    chatSessionRepository: overrides.chatSessionRepository ?? new InMemoryChatSessionRepository(),
+    errors,
+    chatSessionRepository: overrides.chatSessionRepository ?? new JsonChatSessionRepository(config.sessionDataDir),
+    chatModel: overrides.chatModel ?? new LangChainChatModel(config, errors),
     logger: overrides.logger ?? logger
   };
 }

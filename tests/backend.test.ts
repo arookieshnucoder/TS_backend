@@ -13,7 +13,7 @@ async function withApp(
   run: (baseUrl: string) => Promise<void>,
   overrides: Partial<AppDependencies> = {}
 ) {
-  const app = createApp(loadConfig({ NODE_ENV: "test" }), createDependencies({ logger: silentLogger, ...overrides }));
+  const app = createApp(loadConfig({ NODE_ENV: "test" }), createDependencies({ logger: silentLogger, chatSessionRepository: new InMemoryChatSessionRepository(), ...overrides }));
   const server = app.listen(0, "127.0.0.1");
   await once(server, "listening");
   try {
@@ -24,12 +24,12 @@ async function withApp(
   }
 }
 
-test("health preserves its contract and adds request IDs and configured CORS", async () => {
+test("health returns its HTTP status code with request IDs and configured CORS", async () => {
   await withApp(async base => {
     const response = await fetch(`${base}/api/health`, { headers: { Origin: "http://localhost:5173" } });
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { status: "ok" });
-    assert.match(response.headers.get("x-request-id")!, /^[0-9a-f-]{36}$/);
+    assert.deepEqual(await response.json(), { httpStatusCode: 200 });
+    assert.match(response.headers.get("x-request-id")!, /^\d{17,19}$/);
     assert.equal(response.headers.get("access-control-allow-origin"), "http://localhost:5173");
     assert.equal(response.headers.get("x-powered-by"), null);
   });
@@ -105,7 +105,7 @@ test("async repository failures produce a safe 500 response", async () => {
 
 test("memory repository does not leak mutable entities", async () => {
   const repository = new InMemoryChatSessionRepository();
-  const entity = { id: "a", title: "Original", createdAt: new Date() };
+  const entity = { id: "a", requestId: "request-a", title: "Original", createdAt: new Date(), updatedAt: new Date(), messages: [], sessionStatus: "finished" as const, sessionError: null };
   await repository.save(entity);
   entity.title = "Changed outside";
   const stored = await repository.findById("a");
@@ -117,6 +117,10 @@ test("memory repository does not leak mutable entities", async () => {
 
 test("configuration has defaults and rejects invalid deployment values", () => {
   assert.equal(loadConfig({}).port, 3000);
+  assert.equal(loadConfig({}).llmModel, "deepseek-flash");
+  assert.equal(loadConfig({}).llmBaseUrl, "https://api.deepseek.com");
+  assert.equal(loadConfig({ OPENAI_API_KEY: "ignored" }).llmApiKey, undefined);
+  assert.throws(() => loadConfig({ LLM_TIMEOUT_MS: "0" }), /LLM_TIMEOUT_MS/);
   assert.equal(loadConfig({ PORT: "8080" }).port, 8080);
   for (const port of ["0", "-1", "65536", "3.5", "abc", ""]) {
     assert.throws(() => loadConfig({ PORT: port }), /PORT/);
