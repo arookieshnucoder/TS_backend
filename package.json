@@ -5,6 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "test": "tsx --test tests/*.test.ts",
+    "smoke:agent": "tsx scripts/smoke-agent.ts",
     "dev": "tsx watch src/server.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc",

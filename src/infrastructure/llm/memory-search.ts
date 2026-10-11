@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import type { ChatSession } from "../../modules/chat/entity/chat-session.entity.js";
-import type { MemoryChunk, MemorySearch } from "../../modules/context/contracts.js";
-import type { ContextConfig } from "../../modules/context/config.js";
-import { TokenBudget } from "../../modules/context/tokens.js";
+import type { MemoryChunk, MemorySearch } from "../../modules/harness/context/contracts.js";
+import type { ContextConfig } from "../../modules/harness/context/config.js";
+import { TokenBudget } from "../../modules/harness/context/tokens.js";
 
 const terms = (text: string): string[] => text.toLowerCase().match(/\p{Script=Han}|[\p{L}\p{N}]+/gu) ?? [];
 class IndexRequestError extends Error {

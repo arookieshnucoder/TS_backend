@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { loadContextConfig } from "../src/modules/context/config.js";
-import { TokenBudget } from "../src/modules/context/tokens.js";
-import { CompressionTool, SessionTitleTool, SharedMemoryTool, validTitle } from "../src/modules/context/tools.js";
-import { ContextHarness } from "../src/modules/context/harness.js";
+import { loadContextConfig } from "../src/modules/harness/context/config.js";
+import { TokenBudget } from "../src/modules/harness/context/tokens.js";
+import { ContextCompressor, SessionTitleGenerator, SharedMemoryRetriever, validTitle } from "../src/modules/harness/context/services.js";
+import { AgentHarness } from "../src/modules/harness/agent-harness.js";
 import { LocalMemorySearch, ElasticsearchMemorySearch } from "../src/infrastructure/llm/memory-search.js";
 import { InMemoryChatSessionRepository } from "../src/infrastructure/persistence/memory/in-memory-chat-session.repository.js";
 import { ChatSessionService } from "../src/modules/chat/service/chat-session.service.js";
 import type { ChatSession } from "../src/modules/chat/entity/chat-session.entity.js";
-import type { AgentMessage, MemorySearch } from "../src/modules/context/contracts.js";
+import type { MemorySearch } from "../src/modules/harness/context/contracts.js";
+import type { AgentMessage } from "../src/modules/agent/contracts.js";
+import { textModel } from "./helpers.js";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
@@ -53,12 +55,12 @@ test("512/1024 chunks cover multilingual text with bounded overlap and no corrup
 
 test("map/reduce compression bounds its own inputs and outputs", async () => {
   const calls: string[] = [];
-  const compression = new CompressionTool({ async reply(messages) { calls.push(messages[0]!.content); return "用户偏好中文，项目使用向量检索。"; } }, tokens, config);
+  const compression = new ContextCompressor(textModel(async messages => { calls.push(messages[0]!.content); return "用户偏好中文，项目使用向量检索。"; }), tokens, config);
   const result = await compression.execute({ text: "用户偏好中文，项目使用向量检索。".repeat(1000), budget: 100 });
   assert.ok(tokens.count(result) <= 100);
   assert.ok(calls.length > 1);
   assert.ok(calls.every(call => tokens.count(call) < config.maxInputTokens));
-  await assert.rejects(new CompressionTool({ async reply() { return ""; } }, tokens, config).execute({ text: "a ".repeat(500), budget: 10 }), /Empty/);
+  await assert.rejects(new ContextCompressor(textModel(async () => ""), tokens, config).execute({ text: "a ".repeat(500), budget: 10 }), /Empty/);
 });
 
 test("title validates both languages, retries invalid output and freezes after five completed turns", async () => {
@@ -66,7 +68,7 @@ test("title validates both languages, retries invalid output and freezes after f
   assert.ok(validTitle("Designing reusable tools for conversation memory"));
   for (const value of ["太短", "one two", "中".repeat(16), "one two three four five\nsix"]) assert.equal(validTitle(value), false);
   let calls = 0;
-  const tool = new SessionTitleTool({ async reply() { return ++calls === 1 ? "短" : "上下文管理功能设计方案"; } }, tokens, config);
+  const tool = new SessionTitleGenerator(textModel(async () => ++calls === 1 ? "短" : "上下文管理功能设计方案"), tokens, config);
   const s = session(); s.messages.push({id:"u",role:"user",content:"上下文"});
   assert.equal(await tool.execute(s), "上下文管理功能设计方案");
   assert.equal(calls, 2);
@@ -76,12 +78,26 @@ test("title validates both languages, retries invalid output and freezes after f
   assert.equal(calls, 2);
 });
 
+test("harness text generation uses turn without tools, honors output limits and rejects tool requests", async () => {
+  const requests: number[] = [];
+  const invalidModel = { async turn(_messages: AgentMessage[], tools: unknown[], _signal?: AbortSignal, maxOutputTokens?: number) {
+    assert.deepEqual(tools, []);
+    assert.ok(maxOutputTokens && maxOutputTokens > 0);
+    requests.push(maxOutputTokens!);
+    return { content: "上下文管理功能设计方案", toolCalls: [{ id: "bad", name: "read_file", arguments: {} }] };
+  } };
+  await assert.rejects(new ContextCompressor(invalidModel, tokens, config).execute({ text: "history ".repeat(200), budget: 32 }), /invalid context summary/);
+  const s = session(); s.messages = [{ id: "u", role: "user", content: "topic" }];
+  await assert.rejects(new SessionTitleGenerator(invalidModel, tokens, config).execute(s), /Unexpected tool call/);
+  assert.equal(requests.at(-1), 96);
+});
+
 test("shared memory considers ten most recent sessions and summarizes only title matches", async () => {
   const sessions = Array.from({length:12}, (_, i) => ({ ...session(String(i)), updatedAt: new Date(i * 1000),
     messages: [{id:"u",role:"user" as const,content:`source ${i}`}]}));
   let candidates: string[] = [];
   const search: MemorySearch = { async sync() {}, async search() { return []; }, async titles(_query, ids) { candidates = ids; return ["11", "0"]; } };
-  const tool = new SharedMemoryTool(search, new CompressionTool({async reply(){return "summary";}}, tokens, config), config);
+  const tool = new SharedMemoryRetriever(search, new ContextCompressor(textModel(async () => "summary"), tokens, config), config);
   const result = await tool.execute({sessions,query:"上下文"});
   assert.deepEqual(candidates, ["11","10","9","8","7","6","5","4","3","2"]);
   assert.match(result, /source 11/);
@@ -94,24 +110,22 @@ test("agent invokes tools, compacts long histories, preserves storage, and freez
   const events: string[] = [];
   const requests: AgentMessage[][] = [];
   const model = {
-    async reply(messages: {content:string}[]) {
-      if (messages[0]!.content.startsWith("Generate")) { titleCalls++; return titleCalls < 3 ? "上下文管理功能设计方案" : "跨会话记忆检索设计方案"; }
-      return "用户要求保留历史，使用检索管理上下文。";
-    },
     async turn(messages: AgentMessage[]) {
+      if (messages[0]!.content.startsWith("Generate")) { titleCalls++; return { content: titleCalls < 3 ? "上下文管理功能设计方案" : "跨会话记忆检索设计方案", toolCalls: [] }; }
+      if (messages[0]!.content.startsWith("Summarize")) return { content: "用户要求保留历史，使用检索管理上下文。", toolCalls: [] };
       requests.push(structuredClone(messages));
       if (turns++ === 0) return {content:"",toolCalls:[{id:"call1",name:"search_session_memory",arguments:{query:"历史"}}]};
       return {content:"已完成回答",toolCalls:[]};
     },
   };
-  const harness = new ContextHarness(repository, model, () => new LocalMemorySearch(tokens), config,
+  const harness = new AgentHarness(repository, model, () => new LocalMemorySearch(tokens), config,
     { info(event) { events.push(event); }, error() {} });
-  let service = new ChatSessionService(repository, model, undefined, 120000, harness);
+  let service = new ChatSessionService(repository, harness);
   const s = await service.create("新对话", "req-test");
   for (let i = 0; i < 6; i++) {
     const result = await service.send(s.id, i < 2 ? "历史信息 ".repeat(180) : "下一轮");
     assert.equal(result.sessionStatus, "finished");
-    if (i === 4) service = new ChatSessionService(repository, model, undefined, 120000, harness);
+    if (i === 4) service = new ChatSessionService(repository, harness);
   }
   assert.equal(titleCalls, 5);
   assert.equal((await service.getById(s.id)).title, "跨会话记忆检索设计方案");
@@ -125,12 +139,12 @@ test("agent invokes tools, compacts long histories, preserves storage, and freez
 test("oversized current input and unknown agent tools fail without storing a partial turn", async () => {
   const repository = new InMemoryChatSessionRepository();
   let calls = 0;
-  const model = { async reply(){return "summary";}, async turn(){ calls++; return {content:"",toolCalls:[{id:"bad",name:"delete_files",arguments:{query:"x"}}]};} };
-  const harness = new ContextHarness(repository,model,()=>new LocalMemorySearch(tokens),config,logger);
+  const model = { async turn(){ calls++; return {content:"",toolCalls:[{id:"bad",name:"delete_files",arguments:{query:"x"}}]};} };
+  const harness = new AgentHarness(repository,model,()=>new LocalMemorySearch(tokens),config,logger);
   const s = session(); await repository.save(s);
   await assert.rejects(harness.run(s,{id:"u",role:"user",content:"中".repeat(10000)}),/Current message/);
   assert.equal(calls, 0);
-  const service = new ChatSessionService(repository,model,undefined,120000,harness);
+  const service = new ChatSessionService(repository,harness);
   assert.equal((await service.send(s.id,"hello")).sessionStatus,"failure");
   assert.equal((await repository.findById(s.id))!.messages.length,0);
 });

@@ -75,7 +75,6 @@ GHCR 推送使用工作流的 `GITHUB_TOKEN`，不需要额外 Docker Hub 密码
 | Variable | DEPLOY_ENV_FILE | Windows 上长期保存的配置文件绝对路径，例如 `D:\MS\RagAgent\backend\deploy\.env` |
 | Secret | LLM_API_KEY | 实际模型 API key，自动部署必填 |
 | Secret | EMBEDDING_API_KEY | embedding 服务需要认证时填写 |
-| Secret | INTERNAL_API_TOKEN | 确有内部回调使用需求时填写 |
 
 保护该 environment，仅允许可信发布者触发部署。部署 job 只由手动 release 触发，不在 Windows 机器上执行 PR 工作流。宿主机 runtime env 文件提供模型名、base URL、端口及上下文配置；GitHub secrets 在部署时覆盖对应运行时密钥。
 

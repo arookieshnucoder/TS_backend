@@ -5,7 +5,6 @@ const definitions = {
   VALIDATION_ERROR: [HttpStatus.BAD_REQUEST, "Request body is invalid"],
   SESSION_NOT_FOUND: [HttpStatus.NOT_FOUND, "Chat session not found"],
   SESSION_BUSY: [HttpStatus.CONFLICT, "该会话正在生成回复，请稍后重试。"],
-  RESULT_REQUEST_MISMATCH: [HttpStatus.BAD_REQUEST, "结果不属于当前请求，未修改会话。"],
   MODEL_REQUEST_FAILED: [HttpStatus.BAD_REQUEST, "模型未正确返回，请检查接口配置或网络后重试。"],
   ROUTE_NOT_FOUND: [HttpStatus.NOT_FOUND, "API route not found"],
   INVALID_JSON: [HttpStatus.BAD_REQUEST, "Request body must be valid JSON"],

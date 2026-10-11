@@ -10,7 +10,7 @@ import { InMemoryChatSessionRepository } from "../src/infrastructure/persistence
 test("model failure is an actual HTTP 400 JSON response, even if client asks for the removed stream format",async()=>{
   const config=loadConfig({NODE_ENV:"test"});
   const server=createApp(config,createDependencies({chatSessionRepository:new InMemoryChatSessionRepository(),
-    chatModel:{async reply(){throw Object.assign(new Error("private-key"),{status:401})}},logger:{info(){},error(){}}},config)).listen(0,"127.0.0.1");
+    agentModel:{async turn(){throw Object.assign(new Error("private-key"),{status:401})}},logger:{info(){},error(){}}},config)).listen(0,"127.0.0.1");
   await once(server,"listening");
   const base=`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/chat/sessions`;
   const post=(path:string,body:unknown)=>fetch(path,{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/x-ndjson"},body:JSON.stringify(body)});

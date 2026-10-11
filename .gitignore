@@ -7,6 +7,7 @@ dist/
 
 docs/*
 !docs/context-harness.md
+!docs/ask-agent-todo.md
 
 data/
 

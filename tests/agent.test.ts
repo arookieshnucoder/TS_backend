@@ -5,9 +5,9 @@ import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { LangChainChatModel } from "../src/infrastructure/llm/langchain-chat-model.js";
 import { loadConfig } from "../src/config/env.js";
-import { ContextHarness } from "../src/modules/context/harness.js";
+import { AgentHarness } from "../src/modules/harness/agent-harness.js";
 import { LocalMemorySearch } from "../src/infrastructure/llm/memory-search.js";
-import { TokenBudget } from "../src/modules/context/tokens.js";
+import { TokenBudget } from "../src/modules/harness/context/tokens.js";
 import { InMemoryChatSessionRepository } from "../src/infrastructure/persistence/memory/in-memory-chat-session.repository.js";
 import { ChatSessionService } from "../src/modules/chat/service/chat-session.service.js";
 
@@ -31,8 +31,8 @@ test("real LangChain adapter round-trips tool_calls and tool_call_id through the
   try {
     const config = loadConfig({LLM_API_KEY:"test-key",LLM_MODEL:"test",LLM_BASE_URL:`http://127.0.0.1:${(server.address() as AddressInfo).port}`});
     const model = new LangChainChatModel(config), repository = new InMemoryChatSessionRepository();
-    const harness = new ContextHarness(repository,model,()=>new LocalMemorySearch(new TokenBudget(config.context)),config.context,logger);
-    const service = new ChatSessionService(repository,model,undefined,120000,harness);
+    const harness = new AgentHarness(repository,model,()=>new LocalMemorySearch(new TokenBudget(config.context)),config.context,logger);
+    const service = new ChatSessionService(repository,harness);
     const session = await service.create("新对话","request");
     const result = await service.send(session.id,"我的姓名是什么？");
     assert.equal(result.sessionStatus,"finished");
@@ -49,9 +49,9 @@ test("agent refuses endless tool loops and aborts retrieval before model invocat
   const config = loadConfig({AGENT_MAX_TOOL_STEPS:"2"}).context;
   const repository = new InMemoryChatSessionRepository();
   let calls = 0;
-  const model = {async reply(){return "summary";},async turn(){calls++;return {content:"",toolCalls:[{id:String(calls),name:"search_session_memory",arguments:{query:"x"}}]};}};
-  const harness = new ContextHarness(repository,model,()=>new LocalMemorySearch(new TokenBudget(config)),config,logger);
-  const service = new ChatSessionService(repository,model,undefined,120000,harness);
+  const model = {async turn(){calls++;return {content:"",toolCalls:[{id:String(calls),name:"search_session_memory",arguments:{query:"x"}}]};}};
+  const harness = new AgentHarness(repository,model,()=>new LocalMemorySearch(new TokenBudget(config)),config,logger);
+  const service = new ChatSessionService(repository,harness);
   const s = await service.create("新对话","loop");
   assert.equal((await service.send(s.id,"hello")).sessionStatus,"failure");
   assert.equal(calls,3);
@@ -59,22 +59,4 @@ test("agent refuses endless tool loops and aborts retrieval before model invocat
   const abort = new AbortController();abort.abort();
   await assert.rejects(harness.run(s,{id:"u",role:"user",content:"hello"},abort.signal),{name:"AbortError"});
   assert.equal(calls,3);
-});
-
-test("internal completion also generates the title and late model results cannot overwrite it", async () => {
-  const config = loadConfig({}).context;
-  const repository = new InMemoryChatSessionRepository();
-  let release!: (value: {content:string;toolCalls:[]})=>void;
-  const model = {async reply(){return "内部回调标题生成测试方案";},turn(){return new Promise<{content:string;toolCalls:[]}>(resolve=>{release=resolve;});}};
-  const harness = new ContextHarness(repository,model,()=>new LocalMemorySearch(new TokenBudget(config)),config,logger);
-  const service = new ChatSessionService(repository,model,undefined,120000,harness);
-  const s = await service.create("新对话","callback");
-  const pending = service.send(s.id,"callback message",undefined,"callback-result");
-  while(!release) await new Promise(resolve=>setTimeout(resolve,1));
-  const completed = await service.complete(s.id,{requestId:"callback-result",httpStatusCode:200,content:"external response"});
-  assert.equal(completed.title,"内部回调标题生成测试方案");
-  release({content:"late response",toolCalls:[]});
-  const result = await pending;
-  assert.equal(result.messages.at(-1)!.content,"external response");
-  assert.equal(result.title,completed.title);
 });

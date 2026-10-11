@@ -12,6 +12,7 @@ import { createDependencies } from "../src/bootstrap/container.js";
 import { JsonChatSessionRepository } from "../src/infrastructure/persistence/json/json-chat-session.repository.js";
 import { LangChainChatModel } from "../src/infrastructure/llm/langchain-chat-model.js";
 import { ChatSessionService } from "../src/modules/chat/service/chat-session.service.js";
+import { testHarness, textModel } from "./helpers.js";
 
 test("JSON HTTP sessions survive restart; real LangChain adapter sends managed context without persisting credentials", async () => {
   const directory = await mkdtemp(join(tmpdir(), "chat-json-"));
@@ -91,11 +92,11 @@ test("JSON HTTP sessions survive restart; real LangChain adapter sends managed c
 });
 
 test("missing key, concurrent turns, cancellation and invalid disk data fail safely", async () => {
-  await assert.rejects(new LangChainChatModel(loadConfig({})).reply([]), {code:"MODEL_REQUEST_FAILED",statusCode:400});
+  await assert.rejects(new LangChainChatModel(loadConfig({})).turn([], []), {code:"MODEL_REQUEST_FAILED",statusCode:400});
   const directory = await mkdtemp(join(tmpdir(),"chat-lock-"));
   const repository = new JsonChatSessionRepository(directory);
   let release!: (value:string)=>void;
-  const service = new ChatSessionService(repository,{ reply:()=>new Promise(resolve=>{release=resolve}) });
+  const service = new ChatSessionService(repository,testHarness(repository,textModel(()=>new Promise(resolve=>{release=resolve}))));
   try {
     const session = await service.create("失败","request-1");
     const abort = new AbortController();

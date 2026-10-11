@@ -3,8 +3,8 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { loadContextConfig } from './dist/modules/context/config.js';
-import { TokenBudget } from './dist/modules/context/tokens.js';
+import { loadContextConfig } from './dist/modules/harness/context/config.js';
+import { TokenBudget } from './dist/modules/harness/context/tokens.js';
 import { ElasticsearchMemorySearch } from './dist/infrastructure/llm/memory-search.js';
 
 let embeddings = 0;
