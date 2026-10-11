@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
-import { mkdtemp, rm, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { SnowflakeIdGenerator } from "../src/utils/snowflake.js";
@@ -31,7 +31,7 @@ test("internal REST callbacks commit 200/400, reject stale requests and never ov
   const config=loadConfig({NODE_ENV:"test",INTERNAL_API_TOKEN:"test-internal-token"});
   let release!:(text:string)=>void;
   const server=createApp(config,createDependencies({
-    chatSessionRepository:repo,chatModel:{reply:()=>new Promise(resolve=>{release=resolve})},
+    contextHarness:null,chatSessionRepository:repo,chatModel:{reply:()=>new Promise(resolve=>{release=resolve})},
     logger:{info(){},error(){}},
   },config)).listen(0,"127.0.0.1");
   await once(server,"listening");
@@ -116,7 +116,8 @@ test("pending state is stored; success, failure, restart and retry preserve hist
     assert.equal((await restarted.send(session.id,"retry")).sessionStatus,"finished");
     const abort=new AbortController();abort.abort();
     assert.equal((await restarted.send(session.id,"cancel",abort.signal)).sessionStatus,"failure");
-  } finally {await rm(dir,{recursive:true,force:true});}
+  } finally {// Keep test artifacts: repository policy forbids batch deletion.
+  }
 });
 
 test("timeout maps to failure/400 and a retry can succeed",async()=>{

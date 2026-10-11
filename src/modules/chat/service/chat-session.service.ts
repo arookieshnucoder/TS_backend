@@ -5,6 +5,7 @@ import { isValidModelResult } from "../domain/model-result.js";
 import type { ChatSession, ChatMessage } from "../entity/chat-session.entity.js";
 import type { ChatModel } from "./chat-model.js";
 import type { ChatSessionRepository } from "../repository/chat-session.repository.js";
+import type { ContextHarness } from "../../context/harness.js";
 
 export interface ModelResult {
   requestId: string;
@@ -16,12 +17,14 @@ interface PendingRequest {
   session: ChatSession;
   message: ChatMessage;
   completion?: Promise<ChatSession>;
+  signal?: AbortSignal;
 }
 export class ChatSessionService {
   private readonly requests = new Map<string, PendingRequest | null>();
   private initialization?: Promise<void>;
   constructor(private readonly repository: ChatSessionRepository, private readonly model: ChatModel,
-    private readonly errors: ErrorContainer = errorContainer, private readonly timeoutMs = 120000) {}
+    private readonly errors: ErrorContainer = errorContainer, private readonly timeoutMs = 120000,
+    private readonly harness: ContextHarness | null = null) {}
 
   // A previous process cannot finish an in-flight request.
   private initialize(): Promise<void> {
@@ -72,7 +75,10 @@ export class ChatSessionService {
       session.updatedAt = new Date();
       if (success) {
         session.messages.push(request.message, { id: generateId(), role: "assistant", content: result.content! });
-        if (session.title === "新对话") session.title = request.message.content.replace(/\s+/g, " ").slice(0, 24);
+        if (this.harness) {
+          const timeout = AbortSignal.timeout(Math.min(this.timeoutMs, 30000));
+          session.title = await this.harness.titleFor(session, request.signal ? AbortSignal.any([request.signal, timeout]) : timeout);
+        }
       }
       await this.repository.save(session);
       return session;
@@ -94,11 +100,13 @@ export class ChatSessionService {
       await this.repository.save(session);
       const timeout = AbortSignal.timeout(this.timeoutMs);
       const modelSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+      request.signal = modelSignal;
       let result: ModelResult;
       let failure = this.errors.modelFailure();
       try {
         modelSignal.throwIfAborted();
-        const reply = await this.model.reply([...session.messages, request.message], modelSignal);
+        const generated = this.harness ? await this.harness.run(session, request.message, modelSignal) : undefined;
+        const reply = generated ? generated.content : await this.model.reply([...session.messages, request.message], modelSignal);
         modelSignal.throwIfAborted();
         result = { requestId, httpStatusCode: HttpStatus.OK, content: reply };
       } catch (error) {

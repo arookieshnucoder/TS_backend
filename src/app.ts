@@ -17,7 +17,8 @@ export function createApp(
   // header 不带 x-powered-by
   app.disable("x-powered-by");
   app.use(requestContext(dependencies.logger));
-  const chatService = new ChatSessionService(dependencies.chatSessionRepository, dependencies.chatModel);
+  const chatService = new ChatSessionService(dependencies.chatSessionRepository, dependencies.chatModel, dependencies.errors,
+    config.llmTimeoutMs, dependencies.contextHarness);
   // 内部聊天接口，
   app.use("/internal/chat", createInternalChatRouter(chatService, config.internalApiToken));
   app.use(cors({ origin: config.frontendOrigin, exposedHeaders: ["X-Request-Id"] }));

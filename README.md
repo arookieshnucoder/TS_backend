@@ -12,7 +12,7 @@ $env:LLM_API_KEY = Read-Host "输入 DeepSeek API Key"
 npm run dev
 ```
 
-模型和地址已按上述值设为默认。Key 只读取 LLM_API_KEY，不读取文件、不回退到其他服务的 Key。不自动重试、不切换模型、不生成模拟答案。改变变量后需重启服务。
+模型和地址已按上述值设为默认。Key 只读取 LLM_API_KEY，不读取文件、不回退到其他服务的 Key。聊天答案失败不自动重试、不切换模型、不生成模拟答案；标题格式不合规时最多请求模型纠正一次。改变变量后需重启服务。
 
 后端会读取 backend/.env 中的 PORT、FRONTEND_ORIGIN、NODE_ENV、SESSION_DATA_DIR、LLM_BASE_URL、LLM_MODEL、LLM_TIMEOUT_MS，终端环境变量优先。LLM_API_KEY 和 INTERNAL_API_TOKEN 只从终端环境变量读取，即使写进 .env 也不会加载。当前本地配置使用后端 8080、前端 3000；前端 API_PROXY_TARGET 应与后端端口保持一致。
 
@@ -118,3 +118,7 @@ npm run build
 测试用本地兼容 HTTP 服务运行真实 LangChain 适配器，覆盖 deepseek-flash 请求路径、历史上下文、上游 401/429/500、空回复、无重试、失败保存、内部结果上报、旧回调拒绝、取消、超时及重启恢复。不使用真实 Key、不产生外部模型费用；真实账户权限和连通性需设置 Key 后验证。
 
 环境配置测试覆盖 .env 的端口读取、终端覆盖优先级，以及文件中的 API Key 和内部令牌不会被加载。
+
+## Agent 与上下文管理
+
+参阅 [配置、工具接口、检索及测试说明](docs/context-harness.md)。默认启用上下文 harness，配置 Elasticsearch 与 embedding 后启用跨会话混合检索。

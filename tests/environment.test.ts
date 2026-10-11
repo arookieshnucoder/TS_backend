@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadEnvironment } from "../src/config/environment.js";
@@ -15,6 +15,8 @@ test("backend env file restores port/origin but never supplies credentials", asy
       "LLM_MODEL=deepseek-flash", "LLM_BASE_URL=https://api.deepseek.com",
       "LLM_API_KEY=file-key-must-be-ignored", "OPENAI_API_KEY=also-ignored",
       "INTERNAL_API_TOKEN=file-token-must-be-ignored",
+      "LLM_MAX_INPUT_TOKENS=65536", "CONTEXT_CHUNK_TOKENS=1024",
+      "ELASTICSEARCH_API_KEY=ignored-index-key", "EMBEDDING_API_KEY=ignored-embedding-key",
     ].join("\n"));
     const env = loadEnvironment({}, path);
     const config = loadConfig(env);
@@ -23,6 +25,10 @@ test("backend env file restores port/origin but never supplies credentials", asy
     assert.equal(config.nodeEnv, "development");
     assert.equal(config.llmApiKey, undefined);
     assert.equal(config.internalApiToken, undefined);
+    assert.equal(config.context.maxInputTokens, 65536);
+    assert.equal(config.context.chunkTokens, 1024);
+    assert.equal(config.context.elasticsearchApiKey, undefined);
+    assert.equal(config.context.embeddingApiKey, undefined);
     assert.equal(env.OPENAI_API_KEY, undefined);
     const terminal = { PORT: "8090", LLM_API_KEY: "terminal-key", INTERNAL_API_TOKEN: "terminal-token" };
     const overridden = loadConfig(loadEnvironment(terminal, path));
@@ -30,10 +36,11 @@ test("backend env file restores port/origin but never supplies credentials", asy
     assert.equal(overridden.llmApiKey, "terminal-key");
     assert.equal(overridden.internalApiToken, "terminal-token");
     assert.deepEqual(terminal, { PORT: "8090", LLM_API_KEY: "terminal-key", INTERNAL_API_TOKEN: "terminal-token" });
-  } finally { await rm(dir, { recursive: true, force: true }); }
+  } finally { // Keep test artifacts: repository policy forbids batch deletion.
+  }
 });
 
 test("missing env file uses defaults; explicitly supplied config stays isolated", () => {
-  assert.equal(loadConfig(loadEnvironment({}, join(tmpdir(), "absent-chat-env-file"))).port, 3000);
-  assert.equal(loadConfig({}).port, 3000);
+  assert.equal(loadConfig(loadEnvironment({}, join(tmpdir(), "absent-chat-env-file"))).port, 8080);
+  assert.equal(loadConfig({}).port, 8080);
 });

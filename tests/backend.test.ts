@@ -26,11 +26,11 @@ async function withApp(
 
 test("health returns its HTTP status code with request IDs and configured CORS", async () => {
   await withApp(async base => {
-    const response = await fetch(`${base}/api/health`, { headers: { Origin: "http://localhost:5173" } });
+    const response = await fetch(`${base}/api/health`, { headers: { Origin: "http://localhost:3000" } });
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { httpStatusCode: 200 });
     assert.match(response.headers.get("x-request-id")!, /^\d{17,19}$/);
-    assert.equal(response.headers.get("access-control-allow-origin"), "http://localhost:5173");
+    assert.equal(response.headers.get("access-control-allow-origin"), "http://localhost:3000");
     assert.equal(response.headers.get("x-powered-by"), null);
   });
 });
@@ -116,7 +116,7 @@ test("memory repository does not leak mutable entities", async () => {
 });
 
 test("configuration has defaults and rejects invalid deployment values", () => {
-  assert.equal(loadConfig({}).port, 3000);
+  assert.equal(loadConfig({}).port, 8080);
   assert.equal(loadConfig({}).llmModel, "deepseek-flash");
   assert.equal(loadConfig({}).llmBaseUrl, "https://api.deepseek.com");
   assert.equal(loadConfig({ OPENAI_API_KEY: "ignored" }).llmApiKey, undefined);
@@ -126,6 +126,6 @@ test("configuration has defaults and rejects invalid deployment values", () => {
     assert.throws(() => loadConfig({ PORT: port }), /PORT/);
   }
   assert.throws(() => loadConfig({ FRONTEND_ORIGIN: "file:///tmp" }), /FRONTEND_ORIGIN/);
-  assert.throws(() => loadConfig({ FRONTEND_ORIGIN: "http://localhost:5173/path" }), /FRONTEND_ORIGIN/);
+  assert.throws(() => loadConfig({ FRONTEND_ORIGIN: "http://localhost:3000/path" }), /FRONTEND_ORIGIN/);
   assert.throws(() => loadConfig({ NODE_ENV: "unknown" }), /NODE_ENV/);
 });

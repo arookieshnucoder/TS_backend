@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
@@ -13,7 +13,7 @@ import { JsonChatSessionRepository } from "../src/infrastructure/persistence/jso
 import { LangChainChatModel } from "../src/infrastructure/llm/langchain-chat-model.js";
 import { ChatSessionService } from "../src/modules/chat/service/chat-session.service.js";
 
-test("JSON HTTP sessions survive restart; real LangChain adapter sends full context without persisting credentials", async () => {
+test("JSON HTTP sessions survive restart; real LangChain adapter sends managed context without persisting credentials", async () => {
   const directory = await mkdtemp(join(tmpdir(), "chat-json-"));
   const calls: any[] = [];
   let upstreamStatus = 200;
@@ -24,7 +24,7 @@ test("JSON HTTP sessions survive restart; real LangChain adapter sends full cont
     res.setHeader("Content-Type", "application/json");
     if (upstreamStatus !== 200) { res.writeHead(upstreamStatus); res.end(JSON.stringify({error:{message:"secret-test-key"}})); return; }
     res.end(JSON.stringify({ id: "completion-1", object: "chat.completion", created: 1, model: "deepseek-flash",
-      choices: [{ index: 0, message: { role: "assistant", content: empty ? "" : "真实适配器测试回复" }, finish_reason: "stop" }],
+      choices: [{ index: 0, message: { role: "assistant", content: empty ? "" : calls.at(-1).body.messages[0]?.content.startsWith("Generate a session title") ? "用户姓名记录与对话回顾" : "真实适配器测试回复" }, finish_reason: "stop" }],
       usage: {prompt_tokens: 1, completion_tokens: 1, total_tokens: 2} }));
   }).listen(0, "127.0.0.1");
   await once(upstream, "listening");
@@ -47,17 +47,18 @@ test("JSON HTTP sessions survive restart; real LangChain adapter sends full cont
     let sent = await post(`${base}/${created.id}/messages`, {content:"我叫小明"});
     assert.equal(sent.status, 200);
     const {data: first} = await sent.json() as any;
-    assert.equal(first.title, "我叫小明");
+    assert.equal(first.title, "用户姓名记录与对话回顾");
     assert.equal(first.messages.length, 2);
     await close(); base = await start();
     const restored = await (await fetch(`${base}/${created.id}`)).json() as any;
     assert.deepEqual(restored.data, first);
     sent = await post(`${base}/${created.id}/messages`, {content:"我叫什么？"});
     assert.equal(sent.status, 200);
-    assert.equal(calls[1].path, "/chat/completions");
-    assert.equal(calls[1].authorization, "Bearer secret-test-key");
-    assert.equal(calls[1].body.model, "deepseek-flash");
-    assert.deepEqual(calls[1].body.messages.map((m:any)=>m.content), ["我叫小明","真实适配器测试回复","我叫什么？"]);
+    assert.equal(calls[2].path, "/chat/completions");
+    assert.equal(calls[2].authorization, "Bearer secret-test-key");
+    assert.equal(calls[2].body.model, "deepseek-flash");
+    assert.match(calls[2].body.messages.map((m:any)=>m.content).join("\n"), /我叫小明/);
+    assert.equal(calls[2].body.messages.at(-1).content, "我叫什么？");
     const disk = await readFile(join(directory,filename),"utf8");
     assert.doesNotMatch(disk,/secret-test-key|authorization|llmApiKey/);
     assert.equal(JSON.parse(disk).messages.length,4);
@@ -85,7 +86,7 @@ test("JSON HTTP sessions survive restart; real LangChain adapter sends full cont
   } finally {
     if(server?.listening) await close();
     upstream.closeAllConnections(); await new Promise<void>(resolve=>upstream.close(()=>resolve()));
-    await rm(directory,{recursive:true,force:true});
+    // Keep test artifacts: repository policy forbids batch deletion.
   }
 });
 
@@ -107,5 +108,6 @@ test("missing key, concurrent turns, cancellation and invalid disk data fail saf
     await writeFile(join(directory,"broken.json"),"{}");
     await assert.rejects(repository.findAll(),/Invalid session file/);
     await assert.rejects(repository.save({...session,requestId:"../escape"}),/Invalid request ID/);
-  } finally { await rm(directory,{recursive:true,force:true}); }
+  } finally { // Keep test artifacts: repository policy forbids batch deletion.
+  }
 });

@@ -4,6 +4,7 @@
 
 import { fileURLToPath } from "node:url";
 import { loadEnvironment } from "./environment.js";
+import { loadContextConfig, type ContextConfig } from "../modules/context/config.js";
 
 
 /**
@@ -11,6 +12,7 @@ import { loadEnvironment } from "./environment.js";
  * 但是不建议自己的大模型ApiKey放在里面，这个自己做终端的环境变量来管理更安全。
  */
 export interface AppConfig {
+  context: ContextConfig;
   // 后端端口
   sessionDataDir: string;
   internalApiToken?: string;
@@ -59,7 +61,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
     const url = new URL(llmBaseUrl);
     if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Invalid LLM_BASE_URL");
   }
-  return { port, frontendOrigin, nodeEnv, shutdownTimeoutMs: 5000,
+  return { port, frontendOrigin, nodeEnv, shutdownTimeoutMs: 5000, context: loadContextConfig(env),
     sessionDataDir: env.SESSION_DATA_DIR ?? fileURLToPath(new URL("../../data/sessions/", import.meta.url)),
     internalApiToken: env.INTERNAL_API_TOKEN,
     llmApiKey: env.LLM_API_KEY,
