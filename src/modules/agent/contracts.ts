@@ -11,6 +11,10 @@ export interface AgentTurn { content: string; toolCalls: ToolCall[]; }
 /** Only complete exchanges may enter the next prompt or be compacted. */
 export interface ToolRound { assistant: AgentMessage; results: AgentMessage[]; }
 export interface AgentResult { content: string; modelTurns: number; toolCalls: number; }
+export interface AgentInstructions { system: string; final: string; }
+export interface AgentWorkflow {
+  run(runtime: AgentRuntime, signal?: AbortSignal): Promise<AgentResult>;
+}
 export interface AgentRuntime {
   readonly tools: ToolDefinition[];
   readonly maxToolSteps: number;

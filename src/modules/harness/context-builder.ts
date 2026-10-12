@@ -1,6 +1,4 @@
-import type { AgentMessage, ToolDefinition, ToolRound } from "../agent/contracts.js";
-import { ASK_INSTRUCTIONS, FINAL_INSTRUCTIONS } from "../agent/prompt.js";
-import type { ChatMessage } from "../chat/entity/chat-session.entity.js";
+import type { AgentInstructions, AgentMessage, ToolDefinition, ToolRound } from "../agent/contracts.js";
 import type { ContextConfig } from "./context/config.js";
 import type { ContextCompressor } from "./context/services.js";
 import type { TokenBudget } from "./context/tokens.js";
@@ -9,22 +7,21 @@ import type { TokenBudget } from "./context/tokens.js";
 export class ContextBuilder {
   private memory: AgentMessage[];
   private compactedRounds = 0;
-  constructor(history: ChatMessage[], private readonly current: ChatMessage, private readonly config: ContextConfig,
+  constructor(history: AgentMessage[], private readonly question: string, private readonly config: ContextConfig,
     private readonly tokens: TokenBudget, private readonly compression: ContextCompressor,
     private readonly event: (name: string, fields: Record<string, unknown>) => void,
-    private readonly workspaceEnabled = false) {
+    private readonly instructions: AgentInstructions) {
     this.memory = history.map(({ role, content }) => ({ role, content }));
   }
   size(messages: AgentMessage[], tools: ToolDefinition[]): number {
     return this.tokens.count(JSON.stringify(messages)) + this.tokens.count(JSON.stringify(tools)) + 64;
   }
   private system(final: boolean): AgentMessage {
-    return { role: "system", content: ASK_INSTRUCTIONS + (this.workspaceEnabled ? "\nWorkspace paths are relative to the configured workspace root." : "\nWorkspace tools are unavailable.") +
-      (final ? `\n${FINAL_INSTRUCTIONS}` : "") };
+    return { role: "system", content: this.instructions.system + (final ? `\n${this.instructions.final}` : "") };
   }
   async build(rounds: readonly ToolRound[], tools: ToolDefinition[], final: boolean, signal?: AbortSignal): Promise<AgentMessage[]> {
     signal?.throwIfAborted();
-    const system = this.system(final), question: AgentMessage = { role: "user", content: this.current.content };
+    const system = this.system(final), question: AgentMessage = { role: "user", content: this.question };
     const threshold = Math.floor(this.config.maxInputTokens * this.config.compressionTrigger);
     // Reserve the final instruction too, so a valid research request can always finish.
     if (this.size([this.system(true), question], tools) > threshold) throw new Error("Current message exceeds context budget; split the message");

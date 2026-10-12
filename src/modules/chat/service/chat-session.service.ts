@@ -2,12 +2,12 @@ import { generateId } from "../../../utils/snowflake.js";
 import { errorContainer, type ErrorContainer } from "../../../common/errors/error-container.js";
 import type { ChatSession, ChatMessage } from "../entity/chat-session.entity.js";
 import type { ChatSessionRepository } from "../repository/chat-session.repository.js";
-import type { AgentRunner } from "../../harness/agent-harness.js";
+import type { ChatAgent } from "./chat-agent.js";
 
 export class ChatSessionService {
   private readonly activeSessions = new Set<string>();
   private initialization?: Promise<void>;
-  constructor(private readonly repository: ChatSessionRepository, private readonly harness: AgentRunner,
+  constructor(private readonly repository: ChatSessionRepository, private readonly harness: ChatAgent,
     private readonly errors: ErrorContainer = errorContainer, private readonly timeoutMs = 120000) {}
 
   private initialize(): Promise<void> {
@@ -53,21 +53,21 @@ export class ChatSessionService {
       const message: ChatMessage = { id: generateId(), role: "user", content };
       const timeout = AbortSignal.timeout(this.timeoutMs);
       const runSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
-      let answer: string | undefined;
       try {
         runSignal.throwIfAborted();
         const result = await this.harness.run(session, message, runSignal);
         runSignal.throwIfAborted();
         if (typeof result.content !== "string" || !result.content.trim()) throw new Error("Empty agent answer");
-        answer = result.content;
+        const completed = { ...session, messages: [...session.messages, message,
+          { id: generateId(), role: "assistant" as const, content: result.content }] };
+        const title = await this.harness.titleFor(completed, AbortSignal.any([runSignal, AbortSignal.timeout(Math.min(this.timeoutMs, 30000))]));
+        runSignal.throwIfAborted();
+        session.messages = completed.messages;
+        session.title = title;
+        session.sessionStatus = "finished";
       } catch (error) {
         session.sessionStatus = "failure";
         session.sessionError = this.errors.toSessionError(this.errors.modelFailure(error));
-      }
-      if (answer !== undefined) {
-        session.messages.push(message, { id: generateId(), role: "assistant", content: answer });
-        session.title = await this.harness.titleFor(session, AbortSignal.any([runSignal, AbortSignal.timeout(Math.min(this.timeoutMs, 30000))]));
-        session.sessionStatus = "finished";
       }
       session.updatedAt = new Date();
       // Persistence errors remain server errors; never translate them to model failures.

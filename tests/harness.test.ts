@@ -3,10 +3,11 @@ import test from "node:test";
 import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentHarness } from "../src/modules/harness/agent-harness.js";
+import { createChatAgent } from "../src/bootstrap/chat-agent.js";
 import { ToolRegistry } from "../src/modules/harness/tool-registry.js";
 import { createWorkspaceTools } from "../src/modules/harness/workspace-tools.js";
 import { ContextBuilder } from "../src/modules/harness/context-builder.js";
+import { ASK_INSTRUCTIONS, FINAL_INSTRUCTIONS } from "../src/modules/agent/prompt.js";
 import { loadHarnessConfig } from "../src/modules/harness/config.js";
 import { loadContextConfig } from "../src/modules/harness/context/config.js";
 import { TokenBudget } from "../src/modules/harness/context/tokens.js";
@@ -16,7 +17,7 @@ import { InMemoryChatSessionRepository } from "../src/infrastructure/persistence
 import { ChatSessionService } from "../src/modules/chat/service/chat-session.service.js";
 import type { AgentModel } from "../src/modules/agent/model.js";
 import type { ChatSession } from "../src/modules/chat/entity/chat-session.entity.js";
-import type { MemorySearch } from "../src/modules/harness/context/contracts.js";
+import type { MemorySearch } from "../src/modules/chat/service/memory-search.js";
 import type { AgentMessage, ToolCall, ToolRound } from "../src/modules/agent/contracts.js";
 import { textModel } from "./helpers.js";
 
@@ -28,7 +29,7 @@ const session = (id = "test"): ChatSession => ({ id, requestId: id, title: "new"
 const question = { id: "q", role: "user" as const, content: "解释项目的答案来源" };
 const call = (id: string, name: string, args: Record<string, unknown>): ToolCall => ({ id, name, arguments: args });
 const harness = (model: AgentModel, repository = new InMemoryChatSessionRepository(), search?: MemorySearch) =>
-  new AgentHarness(repository, model, () => search ?? new LocalMemorySearch(tokens), config, logger, { generateTitles: false });
+  createChatAgent(repository, model, () => search ?? new LocalMemorySearch(tokens), config, logger, { title: async session => session.title });
 
 test("direct answers retain roles and system instructions without indexing or searching memory", async () => {
   const s = session(); s.messages = [{ id: "1", role: "user", content: "叫我小明" }, { id: "2", role: "assistant", content: "好的" }];
@@ -112,7 +113,8 @@ test("workspace tools search then read evidence with paths and lines, rejecting 
 test("complete tool exchanges compact without duplicating the question or losing tool IDs", async () => {
   const summaryInputs: string[] = [];
   const compression = new ContextCompressor(textModel(async messages => { summaryInputs.push(messages[0]!.content); return "Found source src/a.ts:1 and source src/b.ts:2."; }), tokens, config);
-  const builder = new ContextBuilder([], question, config, tokens, compression, () => {});
+  const builder = new ContextBuilder([], question.content, config, tokens, compression, () => {},
+    { system: ASK_INSTRUCTIONS, final: FINAL_INSTRUCTIONS });
   const round = (id: string, content: string): ToolRound => ({ assistant: { role: "assistant", content: "", toolCalls: [call(id, "read_file", { path: "src/a.ts" })] },
     results: [{ role: "tool", toolCallId: id, content }] });
   const rounds = [round("a", "Large old evidence ".repeat(1000)), round("b", "src/b.ts:2 newest exact evidence")];
@@ -151,7 +153,7 @@ test("last turn disables tools and asks for a supported final answer", async () 
     assert.equal(tools.length, 0); assert.match(messages[0]!.content, /Research budget exhausted/);
     return { content: "现有证据不足。", toolCalls: [] };
   } };
-  const agent = new AgentHarness(new InMemoryChatSessionRepository(), model, () => new LocalMemorySearch(tokens), localConfig, logger);
+  const agent = createChatAgent(new InMemoryChatSessionRepository(), model, () => new LocalMemorySearch(tokens), localConfig, logger);
   assert.equal((await agent.run(session(), question)).content, "现有证据不足。");
 });
 
@@ -183,7 +185,7 @@ test("concurrent runs isolate retrieval snapshots, rounds and call IDs", async (
     const results = messages.filter(m => m.role === "tool");
     return results.length ? { content: results[0]!.content, toolCalls: [] } : { content: "", toolCalls: [call("same-id", "search_session_memory", { query: "fact" })] };
   } };
-  const agent = new AgentHarness(repo, model, () => ({ async sync() {}, async titles() { return []; }, async search(_query, ids) {
+  const agent = createChatAgent(repo, model, () => ({ async sync() {}, async titles() { return []; }, async search(_query, ids) {
     scopes.push(ids); await new Promise(resolve => setImmediate(resolve));
     return [{ id: "chunk", sessionId: ids[0]!, title: "test", text: `${ids[0]} evidence` }];
   } }), config, logger);
@@ -242,14 +244,10 @@ test("cancelling during a tool prevents remaining tools and subsequent model cal
   assert.equal(models, 1); assert.equal(executions, 1);
 });
 
-test("a provider without turn fails rather than falling back to a legacy text method", async () => {
+test("a provider without turn is rejected at assembly rather than falling back to a legacy text method", () => {
   let legacyCalls = 0;
   const unsupported = { async reply() { legacyCalls++; return "must not become an answer"; } };
   const repo = new InMemoryChatSessionRepository();
-  const service = new ChatSessionService(repo, harness(unsupported as unknown as AgentModel, repo));
-  const s = await service.create("test", "req");
-  const result = await service.send(s.id, "hello");
-  assert.equal(result.sessionStatus, "failure");
-  assert.equal(result.messages.length, 0);
+  assert.throws(() => harness(unsupported as unknown as AgentModel, repo), /must implement turn/);
   assert.equal(legacyCalls, 0);
 });

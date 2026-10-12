@@ -1,8 +1,9 @@
-import type { ChatSession } from "../chat/entity/chat-session.entity.js";
-import type { MemorySearch } from "./context/contracts.js";
-import type { ContextConfig } from "./context/config.js";
-import { ContextCompressor, SharedMemoryRetriever } from "./context/services.js";
-import { stringField, validateFields, type RegisteredTool } from "./tool-registry.js";
+import type { ChatSession } from "../entity/chat-session.entity.js";
+import type { MemorySearch } from "./memory-search.js";
+import type { ContextConfig } from "../../harness/context/config.js";
+import type { ContextCompressor } from "../../harness/context/services.js";
+import { SharedMemoryRetriever } from "./context-services.js";
+import { stringField, validateFields, type RegisteredTool } from "../../harness/tool-registry.js";
 
 export function createMemoryTools(session: ChatSession, candidates: ChatSession[], search: MemorySearch,
   compression: ContextCompressor, config: ContextConfig): RegisteredTool[] {

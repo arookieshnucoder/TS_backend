@@ -5,7 +5,7 @@ import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { LangChainChatModel } from "../src/infrastructure/llm/langchain-chat-model.js";
 import { loadConfig } from "../src/config/env.js";
-import { AgentHarness } from "../src/modules/harness/agent-harness.js";
+import { createChatAgent } from "../src/bootstrap/chat-agent.js";
 import { LocalMemorySearch } from "../src/infrastructure/llm/memory-search.js";
 import { TokenBudget } from "../src/modules/harness/context/tokens.js";
 import { InMemoryChatSessionRepository } from "../src/infrastructure/persistence/memory/in-memory-chat-session.repository.js";
@@ -31,7 +31,7 @@ test("real LangChain adapter round-trips tool_calls and tool_call_id through the
   try {
     const config = loadConfig({LLM_API_KEY:"test-key",LLM_MODEL:"test",LLM_BASE_URL:`http://127.0.0.1:${(server.address() as AddressInfo).port}`});
     const model = new LangChainChatModel(config), repository = new InMemoryChatSessionRepository();
-    const harness = new AgentHarness(repository,model,()=>new LocalMemorySearch(new TokenBudget(config.context)),config.context,logger);
+    const harness = createChatAgent(repository,model,()=>new LocalMemorySearch(new TokenBudget(config.context)),config.context,logger);
     const service = new ChatSessionService(repository,harness);
     const session = await service.create("新对话","request");
     const result = await service.send(session.id,"我的姓名是什么？");
@@ -50,7 +50,7 @@ test("agent refuses endless tool loops and aborts retrieval before model invocat
   const repository = new InMemoryChatSessionRepository();
   let calls = 0;
   const model = {async turn(){calls++;return {content:"",toolCalls:[{id:String(calls),name:"search_session_memory",arguments:{query:"x"}}]};}};
-  const harness = new AgentHarness(repository,model,()=>new LocalMemorySearch(new TokenBudget(config)),config,logger);
+  const harness = createChatAgent(repository,model,()=>new LocalMemorySearch(new TokenBudget(config)),config,logger);
   const service = new ChatSessionService(repository,harness);
   const s = await service.create("新对话","loop");
   assert.equal((await service.send(s.id,"hello")).sessionStatus,"failure");

@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadContextConfig } from "../src/modules/harness/context/config.js";
 import { TokenBudget } from "../src/modules/harness/context/tokens.js";
-import { ContextCompressor, SessionTitleGenerator, SharedMemoryRetriever, validTitle } from "../src/modules/harness/context/services.js";
-import { AgentHarness } from "../src/modules/harness/agent-harness.js";
+import { ContextCompressor } from "../src/modules/harness/context/services.js";
+import { SessionTitleGenerator, SharedMemoryRetriever, validTitle } from "../src/modules/chat/service/context-services.js";
+import { createChatAgent } from "../src/bootstrap/chat-agent.js";
 import { LocalMemorySearch, ElasticsearchMemorySearch } from "../src/infrastructure/llm/memory-search.js";
 import { InMemoryChatSessionRepository } from "../src/infrastructure/persistence/memory/in-memory-chat-session.repository.js";
 import { ChatSessionService } from "../src/modules/chat/service/chat-session.service.js";
 import type { ChatSession } from "../src/modules/chat/entity/chat-session.entity.js";
-import type { MemorySearch } from "../src/modules/harness/context/contracts.js";
+import type { MemorySearch } from "../src/modules/chat/service/memory-search.js";
 import type { AgentMessage } from "../src/modules/agent/contracts.js";
 import { textModel } from "./helpers.js";
 import { createServer } from "node:http";
@@ -118,7 +119,7 @@ test("agent invokes tools, compacts long histories, preserves storage, and freez
       return {content:"已完成回答",toolCalls:[]};
     },
   };
-  const harness = new AgentHarness(repository, model, () => new LocalMemorySearch(tokens), config,
+  const harness = createChatAgent(repository, model, () => new LocalMemorySearch(tokens), config,
     { info(event) { events.push(event); }, error() {} });
   let service = new ChatSessionService(repository, harness);
   const s = await service.create("新对话", "req-test");
@@ -140,7 +141,7 @@ test("oversized current input and unknown agent tools fail without storing a par
   const repository = new InMemoryChatSessionRepository();
   let calls = 0;
   const model = { async turn(){ calls++; return {content:"",toolCalls:[{id:"bad",name:"delete_files",arguments:{query:"x"}}]};} };
-  const harness = new AgentHarness(repository,model,()=>new LocalMemorySearch(tokens),config,logger);
+  const harness = createChatAgent(repository,model,()=>new LocalMemorySearch(tokens),config,logger);
   const s = session(); await repository.save(s);
   await assert.rejects(harness.run(s,{id:"u",role:"user",content:"中".repeat(10000)}),/Current message/);
   assert.equal(calls, 0);

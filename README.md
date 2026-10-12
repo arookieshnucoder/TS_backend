@@ -1,8 +1,10 @@
 # Ask Agent 后端：独立工作流 + Harness + 本地 JSON
 
-后端的主链路为 `ChatSessionService → AgentHarness → AskAgent`。AskAgent 根据问题选择只读工具，循环收集证据并回答；Harness 管理上下文、工具执行、预算与取消。LangChain 仅承担兼容模型 API 的协议适配。前端和 REST 返回结构保持兼容。
+后端的默认主链路为 `ChatSessionService → HarnessChatAgent → AgentHarness → AskAgent`。聊天适配层负责会话快照、记忆工具和标题；Harness 通过接口接收工作流、提示词和工具集，管理上下文、工具执行、预算与取消。具体装配集中在 `bootstrap/chat-agent.ts`；LangChain 仅承担模型协议适配。前端和 REST 返回结构保持兼容。
 
 实现边界、Copilot 源码对应关系及工具扩展方法见 [架构说明](docs/context-harness.md)，本次实施清单见 [TODO](docs/ask-agent-todo.md)。
+
+依赖注入只接受 `agentModel`（必须有 `turn`）或完整的 `agentHarness`（实现聊天端口 `run/titleFor`），二者不能同时提供。旧 `chatModel/contextHarness`、未知字段和显式空值立即报错，不再静默使用默认模型。标题模型失败会记录日志并保留原始标题，不生成占位标题；取消或超时会终止本轮并保持历史不变。
 
 ## 运行真实模型
 

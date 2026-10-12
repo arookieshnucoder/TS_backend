@@ -1,6 +1,6 @@
 import type { AgentModel } from "../src/modules/agent/model.js";
 import type { ChatSessionRepository } from "../src/modules/chat/repository/chat-session.repository.js";
-import { AgentHarness } from "../src/modules/harness/agent-harness.js";
+import { createChatAgent } from "../src/bootstrap/chat-agent.js";
 import { loadContextConfig } from "../src/modules/harness/context/config.js";
 import { TokenBudget } from "../src/modules/harness/context/tokens.js";
 import { LocalMemorySearch } from "../src/infrastructure/llm/memory-search.js";
@@ -13,8 +13,8 @@ export function textModel(generate: (messages: AgentMessage[], signal?: AbortSig
   } };
 }
 
-export function testHarness(repository: ChatSessionRepository, model: AgentModel): AgentHarness {
+export function testHarness(repository: ChatSessionRepository, model: AgentModel): ReturnType<typeof createChatAgent> {
   const config = loadContextConfig({});
-  return new AgentHarness(repository, model, () => new LocalMemorySearch(new TokenBudget(config)), config,
-    { info() {}, error() {} }, { generateTitles: false });
+  return createChatAgent(repository, model, () => new LocalMemorySearch(new TokenBudget(config)), config,
+    { info() {}, error() {} }, { title: async session => session.title });
 }

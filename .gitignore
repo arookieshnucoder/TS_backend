@@ -13,3 +13,5 @@ data/
 
 !docs/deployment.md
 deploy/.env
+
+docs/

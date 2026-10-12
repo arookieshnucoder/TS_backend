@@ -1,7 +1,7 @@
-import type { AgentResult, AgentRuntime, ToolRound } from "./contracts.js";
+import type { AgentResult, AgentRuntime, AgentWorkflow, ToolRound } from "./contracts.js";
 
 /** Owns decisions/termination; the harness owns context, providers and execution. */
-export class AskAgent {
+export class AskAgent implements AgentWorkflow {
   async run(runtime: AgentRuntime, signal?: AbortSignal): Promise<AgentResult> {
     const rounds: ToolRound[] = [];
     const ids = new Set<string>();

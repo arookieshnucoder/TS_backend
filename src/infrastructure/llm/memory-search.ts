@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ChatSession } from "../../modules/chat/entity/chat-session.entity.js";
-import type { MemoryChunk, MemorySearch } from "../../modules/harness/context/contracts.js";
+import type { MemoryChunk, MemorySearch } from "../../modules/chat/service/memory-search.js";
 import type { ContextConfig } from "../../modules/harness/context/config.js";
 import { TokenBudget } from "../../modules/harness/context/tokens.js";
 
@@ -27,6 +27,12 @@ export function bm25(query: string, documents: string[]): number[] {
   }, 0));
 }
 
+function memoryChunks(sessions: ChatSession[], tokens: TokenBudget): MemoryChunk[] {
+  return sessions.flatMap(s => s.messages.flatMap(m => tokens.chunks(m.content).map((text, index) => ({
+    id: `${s.id}-${m.id}-${index}`, sessionId: s.id, title: s.title, text: `${m.role}: ${text}`,
+  }))));
+}
+
 export class LocalMemorySearch implements MemorySearch {
   protected sessions: ChatSession[] = [];
   protected chunks: MemoryChunk[] = [];
@@ -34,9 +40,7 @@ export class LocalMemorySearch implements MemorySearch {
   async sync(sessions: ChatSession[], signal?: AbortSignal) {
     signal?.throwIfAborted();
     this.sessions = structuredClone(sessions);
-    this.chunks = sessions.flatMap(s => s.messages.flatMap(m => this.tokens.chunks(m.content).map((text, index) => ({
-      id: `${s.id}-${m.id}-${index}`, sessionId: s.id, title: s.title, text: `${m.role}: ${text}`,
-    }))));
+    this.chunks = memoryChunks(sessions, this.tokens);
   }
   async titles(query: string, ids: string[], signal?: AbortSignal) {
     signal?.throwIfAborted();
@@ -54,11 +58,11 @@ export class LocalMemorySearch implements MemorySearch {
   }
 }
 
-export class ElasticsearchMemorySearch extends LocalMemorySearch {
+export class ElasticsearchMemorySearch implements MemorySearch {
   private ready?: Promise<void>;
   private readonly documentIds = new Map<string, { title: string[]; chunk: string[] }>();
   private syncQueue: Promise<void> = Promise.resolve();
-  constructor(tokens: TokenBudget, private readonly config: ContextConfig) { super(tokens); }
+  constructor(private readonly tokens: TokenBudget, private readonly config: ContextConfig) {}
   private async request(path: string, body: unknown, signal?: AbortSignal, method = "POST") {
     const response = await fetch(`${this.config.elasticsearchUrl}/${this.config.index}${path}`, {
       method, signal, headers: { "Content-Type": "application/json",
@@ -98,14 +102,15 @@ export class ElasticsearchMemorySearch extends LocalMemorySearch {
       throw new Error("Invalid embedding dimensions or values");
     return vector;
   }
-  override async sync(sessions: ChatSession[], signal?: AbortSignal) {
+  async sync(sessions: ChatSession[], signal?: AbortSignal) {
     // Serialize updates to prevent older concurrent snapshots overwriting newer documents.
     const work = this.syncQueue.then(async () => {
       await (this.ready ??= this.initialize(signal).catch(error => { this.ready = undefined; throw error; }));
-      await super.sync(sessions, signal);
+      signal?.throwIfAborted();
+      const chunks = memoryChunks(sessions, this.tokens);
       for (const session of sessions) {
         const docs = [ { id: `title-${session.id}`, sessionId: session.id, title: session.title, text: session.title, kind: "title" as const },
-          ...this.chunks.filter(c => c.sessionId === session.id).map(c => ({ ...c, kind: "chunk" as const })) ].map(doc => ({
+          ...chunks.filter(c => c.sessionId === session.id).map(c => ({ ...c, kind: "chunk" as const })) ].map(doc => ({
             ...doc, id: createHash("sha256").update(JSON.stringify([doc.id, doc.text,
               this.config.embeddingModel, this.config.embeddingDimensions])).digest("hex"),
           }));
@@ -151,10 +156,10 @@ export class ElasticsearchMemorySearch extends LocalMemorySearch {
     });
     return [...fused.values()].sort((a, b) => b.score - a.score).slice(0, limit).map(v => v.doc);
   }
-  override async titles(query: string, ids: string[], signal?: AbortSignal) {
+  async titles(query: string, ids: string[], signal?: AbortSignal) {
     return (await this.retrieve(query, ids, "title", 3, signal)).map(c => c.sessionId);
   }
-  override async search(query: string, ids: string[], limit: number, signal?: AbortSignal) {
+  async search(query: string, ids: string[], limit: number, signal?: AbortSignal) {
     return this.retrieve(query, ids, "chunk", limit, signal);
   }
 }
