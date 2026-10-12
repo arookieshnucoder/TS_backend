@@ -8,7 +8,6 @@ import { AgentHarness, type HarnessOptions } from "../modules/harness/agent-harn
 import { AskAgent } from "../modules/agent/ask-agent.js";
 import { ASK_INSTRUCTIONS, FINAL_INSTRUCTIONS } from "../modules/agent/prompt.js";
 import { TokenBudget } from "../modules/harness/context/tokens.js";
-import { ContextCompressor } from "../modules/harness/context/services.js";
 import { SessionTitleGenerator } from "../modules/chat/service/context-services.js";
 import { HarnessChatAgent, type ChatToolFactory, type ChatTitleGenerator } from "../modules/chat/service/harness-chat-agent.js";
 import { createMemoryTools } from "../modules/chat/service/memory-tools.js";
@@ -54,17 +53,16 @@ export function createChatAgent(repository: ChatSessionRepository, model: AgentM
     };
     const harness = new AgentHarness(model, profile.workflow, profile.instructions, config, logger, options);
     const tokens = new TokenBudget(config);
-    const compression = new ContextCompressor(model, tokens, config);
     const title = new SessionTitleGenerator(model, tokens, config);
-    const toolFactory = options.tools ?? (async (session, signal) => {
+    const toolFactory: ChatToolFactory = options.tools ?? (async (session, signal, _context, runtime) => {
         const candidates = structuredClone((await repository.findAll()).filter(s => s.id !== session.id && s.messages.length)
             .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).slice(0, 10));
         signal?.throwIfAborted();
-        return [...createMemoryTools(session, candidates, searchFactory(), compression, config),
+        return [...createMemoryTools(session, candidates, searchFactory(), runtime.compression, config),
         ...(options.workspaceRoot ? createWorkspaceTools(options.workspaceRoot, options.excludedPaths) : [])];
     });
-    return new HarnessChatAgent(harness, async (session, signal, context) => {
-        const [custom, extra] = await Promise.all([toolFactory(session, signal, context), options.additionalTools?.(session, signal, context) ?? []]);
+    return new HarnessChatAgent(harness, async (session, signal, context, runtime) => {
+        const [custom, extra] = await Promise.all([toolFactory(session, signal, context, runtime), options.additionalTools?.(session, signal, context, runtime) ?? []]);
         return [...custom, ...extra];
     }, options.title ?? (async (session, signal) => {
         try { return await abortable(() => title.execute(session, signal), signal); }

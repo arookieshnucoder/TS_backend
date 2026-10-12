@@ -138,13 +138,16 @@ test("failed title generation preserves the actual existing title instead of man
   assert.equal(titleCalls, 2); assert.equal(failures, 1);
 });
 
-test("title errors and cancellation cannot commit a half-finished chat or strand it pending", async () => {
+test("title errors and cancellation preserve the already committed answer", async () => {
   for (const cancel of [false, true]) {
     const repository = new InMemoryChatSessionRepository();
     const abort = new AbortController();
     let first = true;
     const agent = createChatAgent(repository, { async turn() { return { content: "answer", toolCalls: [] }; } },
       () => new LocalMemorySearch(new TokenBudget(config.context)), config.context, logger, { title: async s => {
+        const saved = await repository.findById(s.id);
+        assert.equal(saved!.sessionStatus, "finished");
+        assert.deepEqual(saved!.messages, s.messages);
         if (first) {
           first = false;
           if (!cancel) throw new Error("title failed");
@@ -155,12 +158,12 @@ test("title errors and cancellation cannot commit a half-finished chat or strand
       } });
     const service = new ChatSessionService(repository, agent);
     const session = await service.create("title", "request");
-    const failed = await service.send(session.id, "first", abort.signal);
-    assert.equal(failed.sessionStatus, "failure");
-    assert.deepEqual(failed.messages, []);
+    const completed = await service.send(session.id, "first", abort.signal);
+    assert.equal(completed.sessionStatus, "finished");
+    assert.deepEqual(completed.messages.map(m => m.content), ["first", "answer"]);
     const retry = await service.send(session.id, "retry");
     assert.equal(retry.sessionStatus, "finished");
-    assert.deepEqual(retry.messages.map(m => m.content), ["retry", "answer"]);
+    assert.deepEqual(retry.messages.map(m => m.content), ["first", "answer", "retry", "answer"]);
   }
 });
 
@@ -175,7 +178,7 @@ test("configured Elasticsearch failure is propagated without invoking local retr
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test("title timeout releases the session and ignores a non-cooperating provider's late result", async () => {
+test("title timeout preserves the answer and ignores a non-cooperating provider's late result", async () => {
   const repository = new InMemoryChatSessionRepository();
   let release!: (title: string) => void;
   let pendingTitle = true;
@@ -186,14 +189,30 @@ test("title timeout releases the session and ignores a non-cooperating provider'
   const session = await service.create("original", "request");
   const keepAlive = setTimeout(() => {}, 1000);
   try {
-    const failed = await service.send(session.id, "first");
-    assert.equal(failed.sessionStatus, "failure"); assert.deepEqual(failed.messages, []);
+    const completed = await service.send(session.id, "first");
+    assert.equal(completed.sessionStatus, "finished");
+    assert.deepEqual(completed.messages.map(m => m.content), ["first", "answer"]);
     pendingTitle = false;
     assert.equal((await service.send(session.id, "retry")).sessionStatus, "finished");
     release("late title");
     await new Promise(resolve => setImmediate(resolve));
     const stored = await service.getById(session.id);
     assert.equal(stored.title, "original");
-    assert.deepEqual(stored.messages.map(m => m.content), ["retry", "answer"]);
+    assert.deepEqual(stored.messages.map(m => m.content), ["first", "answer", "retry", "answer"]);
   } finally { clearTimeout(keepAlive); }
+});
+
+test("title persistence failure leaves the committed answer and actual original title intact", async () => {
+  const repository = new InMemoryChatSessionRepository();
+  const agent: ChatAgent = { async run() { return { content: "answer" }; }, async titleFor() { return "new title"; } };
+  const service = new ChatSessionService(repository, agent);
+  const session = await service.create("original", "title-persistence");
+  const save = repository.save.bind(repository);
+  let writes = 0;
+  repository.save = async value => { if (++writes === 3) throw new Error("title write failed"); await save(value); };
+  const completed = await service.send(session.id, "question");
+  assert.equal(completed.sessionStatus, "finished");
+  assert.equal(completed.title, "original");
+  assert.equal(completed.messages.length, 2);
+  assert.deepEqual(await repository.findById(session.id), completed);
 });

@@ -93,6 +93,24 @@ test("harness text generation uses turn without tools, honors output limits and 
   assert.equal(requests.at(-1), 96);
 });
 
+test("title evidence keeps early and latest content within a small input budget", async () => {
+  const largeConfig = { ...config, maxInputTokens: 32768 };
+  let prompt = "";
+  const title = new SessionTitleGenerator(textModel(async messages => {
+    prompt = messages[0]!.content;
+    return "上下文管理功能设计方案";
+  }), tokens, largeConfig);
+  const s = session();
+  s.messages = [
+    { id: "early", role: "user", content: "FIRST_TOPIC " + "Old details. ".repeat(3000) },
+    { id: "latest", role: "assistant", content: "LATEST_DECISION " + "Recent details. ".repeat(3000) },
+  ];
+  await title.execute(s);
+  assert.match(prompt, /FIRST_TOPIC/);
+  assert.match(prompt, /LATEST_DECISION/);
+  assert.ok(tokens.count(prompt) < 1400);
+});
+
 test("shared memory considers ten most recent sessions and summarizes only title matches", async () => {
   const sessions = Array.from({length:12}, (_, i) => ({ ...session(String(i)), updatedAt: new Date(i * 1000),
     messages: [{id:"u",role:"user" as const,content:`source ${i}`}]}));

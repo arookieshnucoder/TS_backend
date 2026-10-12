@@ -8,11 +8,11 @@ import { ChatSessionService } from "./service/chat-session.service.js";
  * @returns 配置好的聊天模块路由
  */
 export function createChatModule(service: ChatSessionService, errors: ErrorContainer = errorContainer): Router {
-  const controller = new ChatSessionController(service, errors);
-  const router = Router();
-  router.post("/sessions", controller.create);
-  router.get("/sessions", controller.list);
-  router.get("/sessions/:id", controller.getById);
-  router.post("/sessions/:id/messages", controller.send);
-  return router;
+    const controller = new ChatSessionController(service, errors);
+    const router = Router();
+    router.post("/sessions", controller.create);
+    router.get("/sessions", controller.list);
+    router.get("/sessions/:id", controller.getById);
+    router.post("/sessions/:id/messages", controller.send);
+    return router;
 }

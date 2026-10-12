@@ -15,7 +15,7 @@ export interface MemoryChunk { id: string; sessionId: string; title: string; tex
  * @method search 根据查询获取相关内存块。
  */
 export interface MemorySearch {
-  sync(sessions: ChatSession[], signal?: AbortSignal): Promise<void>;
-  titles(query: string, sessionIds: string[], signal?: AbortSignal): Promise<string[]>;
-  search(query: string, sessionIds: string[], limit: number, signal?: AbortSignal): Promise<MemoryChunk[]>;
+    sync(sessions: ChatSession[], signal?: AbortSignal): Promise<void>;
+    titles(query: string, sessionIds: string[], signal?: AbortSignal): Promise<string[]>;
+    search(query: string, sessionIds: string[], limit: number, signal?: AbortSignal): Promise<MemoryChunk[]>;
 }

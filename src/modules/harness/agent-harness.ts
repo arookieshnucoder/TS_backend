@@ -12,6 +12,7 @@ import { RecoveringModel, recoveryPolicy, type RecoveryPolicy, type NamedAgentMo
 import { redact } from "../../common/logging/redaction.js";
 import { selectTools } from "./tool-selection.js";
 import { HarnessRuntime, HarnessPolicyError } from "./runtime.js";
+import type { TextCompressor } from "./context/contracts.js";
 
 export interface HarnessOptions {
     recovery?: Partial<RecoveryPolicy>;
@@ -20,11 +21,13 @@ export interface HarnessOptions {
     toolTimeoutMs?: number;
     toolOutputTokens?: number;
 }
+export interface HarnessToolContext { compression: TextCompressor; }
+export type HarnessToolFactory = (context: HarnessToolContext, signal?: AbortSignal) => Promise<RegisteredTool[]>;
 export interface HarnessInput {
     onEvent?(name: string, fields?: Record<string, unknown>): void;
     history: AgentMessage[];
     question: string;
-    tools: RegisteredTool[];
+    tools: RegisteredTool[] | HarnessToolFactory;
     metadata: Record<string, unknown>;
 }
 export interface HarnessRunner {
@@ -64,10 +67,12 @@ export class AgentHarness implements HarnessRunner {
             return await abortable(async () => {
                 const model = new RecoveringModel(this.model, this.options.fallbackModels, this.recovery, event);
                 const compression = new ContextCompressor(model, this.tokens, this.config);
+                const tools = typeof input.tools === "function" ? await input.tools({ compression }, signal) : input.tools;
+                signal?.throwIfAborted();
                 const builder = new ContextBuilder(structuredClone(input.history), input.question, this.config,
                     this.tokens, compression, event, this.instructions);
                 const registry = new ToolRegistry(this.tokens, this.options.toolOutputTokens, this.options.toolTimeoutMs, event, this.recovery);
-                const selection = selectTools(input.tools, input.question, this.instructions, this.config, this.tokens);
+                const selection = selectTools(tools, input.question, this.instructions, this.config, this.tokens);
                 for (const tool of selection.tools) registry.register(tool);
                 if (selection.omitted) event("agent.tools.selected", { included: selection.tools.length, omittedMcpTools: selection.omitted, mcpBudgetTokens: selection.budgetTokens, reason: "context_budget" });
                 const runtime = new HarnessRuntime(model, builder, registry, this.config.maxToolSteps, this.options.maxCallsPerStep,

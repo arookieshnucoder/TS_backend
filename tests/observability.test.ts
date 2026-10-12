@@ -42,7 +42,7 @@ test("complete per-question trace orders discovery, model, tool, answer, title a
     assert.equal(trace.status, "success"); assert.equal(trace.requestId, "question-request");
     assert.equal(trace.userMessageId, completed.messages[0]!.id); assert.equal(trace.assistantMessageId, completed.messages[1]!.id);
     const names = trace.events.map(e => e.name);
-    const chain = ["run.started", "session.pending", "tools.discovery.started", "tools.discovery.completed", "agent.started", "agent.context", "agent.model.started", "agent.model.completed", "agent.tool.started", "agent.tool", "answer.ready", "title.started", "title.completed", "session.saved", "run.success"];
+    const chain = ["run.started", "session.pending", "agent.started", "tools.discovery.started", "tools.discovery.completed", "agent.context", "agent.model.started", "agent.model.completed", "agent.tool.started", "agent.tool", "answer.ready", "session.saved", "title.started", "title.completed", "run.success"];
     let last = -1; for (const name of chain) { const index = names.indexOf(name); assert.ok(index > last, `Expected ordered ${name}`); last = index; }
     assert.deepEqual(trace.events.map(e => e.sequence), trace.events.map((_e, i) => i + 1));
     assert.equal(trace.events.find(e => e.name === "agent.tool")!.fields.callId, "call-1");
