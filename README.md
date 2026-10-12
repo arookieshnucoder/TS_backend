@@ -2,10 +2,6 @@
 
 后端的默认主链路为 `ChatSessionService → HarnessChatAgent → AgentHarness → AskAgent`。聊天适配层负责会话快照、记忆工具和标题；Harness 通过接口接收工作流、提示词和工具集，管理上下文、工具执行、预算与取消。具体装配集中在 `bootstrap/chat-agent.ts`；LangChain 仅承担模型协议适配。前端和 REST 返回结构保持兼容。
 
-实现边界、Copilot 源码对应关系及工具扩展方法见 [架构说明](docs/context-harness.md)，本次实施清单见 [TODO](docs/ask-agent-todo.md)。
-
-依赖注入只接受 `agentModel`（必须有 `turn`）或完整的 `agentHarness`（实现聊天端口 `run/titleFor`），二者不能同时提供。旧 `chatModel/contextHarness`、未知字段和显式空值立即报错，不再静默使用默认模型。标题模型失败会记录日志并保留原始标题，不生成占位标题；取消或超时会终止本轮并保持历史不变。
-
 ## 运行真实模型
 
 在 backend 目录的 PowerShell 中设置临时环境变量：
@@ -110,7 +106,3 @@ npm run smoke:agent
 默认启用 Ask Harness。工作区默认为 backend 目录；在 backend/.env 设置 `AGENT_WORKSPACE_ROOT=..` 可读取同级 frontend 和 vscode 源码，设置 `AGENT_WORKSPACE_ENABLED=false` 可关闭文件工具。配置 Elasticsearch 与 embedding 后，记忆工具使用混合检索；只有模型实际请求记忆工具才索引和检索。
 
 `npm run smoke:agent` 启动本机兼容模型服务与真实后端，验证“搜索 → 读文件 → 回答 → JSON 保存 → 重启恢复”，完成后关闭测试服务器。启动终端已设置 `LLM_API_KEY` 时，执行 `npm run smoke:agent -- --live` 可对配置的真实供应商运行相同的工作区问答检查。live 模式会产生实际模型请求，不会自动回退到本地模拟服务。
-
-## Docker 与 CI/CD
-
-在 Windows 的 Docker Desktop（Linux containers）启动后运行 `./scripts/deploy.ps1`，会构建前后端独立镜像及启动 Elasticsearch。完整配置、GitHub 一键发布与 Windows runner 设置见 [部署说明](docs/deployment.md)。
