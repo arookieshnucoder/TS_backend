@@ -76,6 +76,8 @@ export function defineReadOnlyTool<P extends Parameters>(options: ReadOnlyToolOp
     }
     return {
         readonly: true,
+        idempotent: true,
+        source: { type: "custom" },
         definition: {
             name: options.name,
             description: options.description,

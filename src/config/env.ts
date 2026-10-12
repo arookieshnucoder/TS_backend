@@ -3,6 +3,7 @@
  */
 
 import { fileURLToPath } from "node:url";
+import { join, dirname } from "node:path";
 import { loadEnvironment } from "./environment.js";
 import { loadContextConfig, type ContextConfig } from "../modules/harness/context/config.js";
 import { loadHarnessConfig, type HarnessConfig } from "../modules/harness/config.js";
@@ -13,6 +14,7 @@ import { loadHarnessConfig, type HarnessConfig } from "../modules/harness/config
  * 但是不建议自己的大模型ApiKey放在里面，这个自己做终端的环境变量来管理更安全。
  */
 export interface AppConfig {
+    mcp?: { configFile: string; adminToken?: string; timeoutMs: number };
     harness: HarnessConfig;
     context: ContextConfig;
     // 后端端口
@@ -61,9 +63,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
         const url = new URL(llmBaseUrl);
         if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Invalid LLM_BASE_URL");
     }
+    const sessionDataDir = env.SESSION_DATA_DIR ?? fileURLToPath(new URL("../../data/sessions/", import.meta.url));
+    const mcpTimeout = Number(env.MCP_TIMEOUT_MS ?? "10000");
+    if (!Number.isInteger(mcpTimeout) || mcpTimeout < 1 || mcpTimeout > 120000) throw new Error("MCP_TIMEOUT_MS must be 1..120000");
     return {
+        mcp: { configFile: env.MCP_CONFIG_FILE ?? join(dirname(sessionDataDir), "mcp-servers.json"), adminToken: env.MCP_ADMIN_TOKEN || undefined, timeoutMs: mcpTimeout },
         port, frontendOrigin, nodeEnv, shutdownTimeoutMs: 5000, context: loadContextConfig(env), harness: loadHarnessConfig(env),
-        sessionDataDir: env.SESSION_DATA_DIR ?? fileURLToPath(new URL("../../data/sessions/", import.meta.url)),
+        sessionDataDir,
         llmApiKey: env.LLM_API_KEY,
         llmModel: env.LLM_MODEL ?? "deepseek-flash", llmBaseUrl, llmTimeoutMs
     };

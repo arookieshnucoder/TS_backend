@@ -15,5 +15,7 @@ data/
 deploy/.env
 
 docs/
+!docs/
+!docs/MCP_HARNESS_PLAN.md
 
 .editorconfig

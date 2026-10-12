@@ -16,6 +16,7 @@ import { createWorkspaceTools } from "../modules/harness/workspace-tools.js";
 import { abortable } from "../modules/harness/cancellation.js";
 
 export interface ChatAgentOptions extends HarnessOptions {
+    additionalTools?: ChatToolFactory;
     workspaceRoot?: string;
     excludedPaths?: string[];
     profile?: { workflow: AgentWorkflow; instructions: AgentInstructions };
@@ -35,11 +36,11 @@ export interface ChatAgentOptions extends HarnessOptions {
  */
 export function createChatAgent(repository: ChatSessionRepository, model: AgentModel,
     searchFactory: () => MemorySearch, config: ContextConfig, logger: Logger, options: ChatAgentOptions = {}) {
-    const allowed = new Set(["workspaceRoot", "excludedPaths", "maxCallsPerStep", "toolTimeoutMs", "toolOutputTokens", "profile", "tools", "title"]);
+    const allowed = new Set(["workspaceRoot", "excludedPaths", "maxCallsPerStep", "toolTimeoutMs", "toolOutputTokens", "profile", "tools", "title", "additionalTools"]);
     for (const key of Object.keys(options)) {
         if (!allowed.has(key)) throw new TypeError(`Unsupported chat agent option: ${key}`);
     }
-    for (const key of ["tools", "title"] as const) {
+    for (const key of ["tools", "title", "additionalTools"] as const) {
         if (Object.hasOwn(options, key) && typeof options[key] !== "function") throw new TypeError(`${key} must be a function`);
     }
     if (Object.hasOwn(options, "profile") && (typeof options.profile?.workflow?.run !== "function" ||
@@ -55,13 +56,17 @@ export function createChatAgent(repository: ChatSessionRepository, model: AgentM
     const tokens = new TokenBudget(config);
     const compression = new ContextCompressor(model, tokens, config);
     const title = new SessionTitleGenerator(model, tokens, config);
-    return new HarnessChatAgent(harness, options.tools ?? (async (session, signal) => {
+    const toolFactory = options.tools ?? (async (session, signal) => {
         const candidates = structuredClone((await repository.findAll()).filter(s => s.id !== session.id && s.messages.length)
             .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).slice(0, 10));
         signal?.throwIfAborted();
         return [...createMemoryTools(session, candidates, searchFactory(), compression, config),
         ...(options.workspaceRoot ? createWorkspaceTools(options.workspaceRoot, options.excludedPaths) : [])];
-    }), options.title ?? (async (session, signal) => {
+    });
+    return new HarnessChatAgent(harness, async (session, signal) => {
+        const [custom, extra] = await Promise.all([toolFactory(session, signal), options.additionalTools?.(session, signal) ?? []]);
+        return [...custom, ...extra];
+    }, options.title ?? (async (session, signal) => {
         try { return await abortable(() => title.execute(session, signal), signal); }
         catch {
             signal?.throwIfAborted();

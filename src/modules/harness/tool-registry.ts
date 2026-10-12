@@ -4,10 +4,14 @@ import { abortable } from "./cancellation.js";
 
 export class ToolInputError extends Error { }
 export class ToolAccessError extends Error { }
+export class ToolExecutionError extends Error { }
 /** Harness 内部执行契约。业务工具统一通过 defineReadOnlyTool() 构建。 */
 export interface RegisteredTool {
     definition: ToolDefinition;
-    readonly: true;
+    readonly: boolean;
+    /** Explicitly safe to repeat after a transient failure. */
+    idempotent?: boolean;
+    source?: { type: "custom" | "mcp"; serverId?: string; toolName?: string };
     validate(input: Record<string, unknown>): void;
     execute(input: Record<string, unknown>, signal?: AbortSignal): Promise<string>;
 }
@@ -20,7 +24,7 @@ export class ToolRegistry {
     constructor(private readonly tokens: TokenBudget, private readonly outputTokens: number, private readonly timeoutMs: number,
         private readonly event: (name: string, fields: Record<string, unknown>) => void) { }
     register(tool: RegisteredTool): this {
-        if (tool.readonly !== true || this.entries.has(tool.definition.name)) throw new Error("Invalid or duplicate read-only tool");
+        if (typeof tool.readonly !== "boolean" || this.entries.has(tool.definition.name)) throw new Error("Invalid or duplicate tool");
         this.entries.set(tool.definition.name, tool);
         return this;
     }

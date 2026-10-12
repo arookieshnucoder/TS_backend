@@ -9,9 +9,12 @@ import type { ChatAgent } from "../modules/chat/service/chat-agent.js";
 import { createChatAgent } from "./chat-agent.js";
 import { TokenBudget } from "../modules/harness/context/tokens.js";
 import { LocalMemorySearch, ElasticsearchMemorySearch } from "../infrastructure/llm/memory-search.js";
+import { McpManager } from "../modules/mcp/mcp-manager.js";
+import { dirname, join } from "node:path";
 
 
 export interface AppDependencies {
+    mcp: McpManager;
     errors: ErrorContainer;
     chatSessionRepository: ChatSessionRepository;
     logger: Logger;
@@ -22,7 +25,7 @@ export interface AppDependencies {
 export type DependencyOverrides = Partial<AppDependencies> & { agentModel?: AgentModel };
 
 export function createDependencies(overrides: DependencyOverrides = {}, config: AppConfig = loadConfig()): AppDependencies {
-    const allowed = new Set(["errors", "chatSessionRepository", "logger", "agentHarness", "agentModel"]);
+    const allowed = new Set(["errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "mcp"]);
     for (const key of Object.keys(overrides)) {
         if (!allowed.has(key)) throw new TypeError(`Unsupported dependency override: ${key}. Use agentModel or agentHarness; legacy chatModel/contextHarness are unsupported.`);
         if (overrides[key as keyof DependencyOverrides] == null) throw new TypeError(`Dependency override ${key} must not be null or undefined`);
@@ -34,13 +37,15 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
     const errors = overrides.errors ?? errorContainer;
     const repository = overrides.chatSessionRepository ?? new JsonChatSessionRepository(config.sessionDataDir);
     const log = overrides.logger ?? logger;
+    const mcp = overrides.mcp ?? new McpManager(config.mcp?.configFile ?? join(dirname(config.sessionDataDir), "mcp-servers.json"), log, undefined, config.mcp?.timeoutMs);
     return {
+        mcp,
         errors,
         chatSessionRepository: repository,
         logger: log,
         agentHarness: overrides.agentHarness ?? createChatAgent(repository, overrides.agentModel ?? new LangChainChatModel(config, errors),
             () => config.context.elasticsearchUrl ? new ElasticsearchMemorySearch(new TokenBudget(config.context), config.context) :
                 new LocalMemorySearch(new TokenBudget(config.context)), config.context, log,
-            { ...config.harness, excludedPaths: [config.sessionDataDir] })
+            { ...config.harness, excludedPaths: [config.sessionDataDir, config.mcp?.configFile ?? join(dirname(config.sessionDataDir), "mcp-servers.json")], additionalTools: (_session, signal) => mcp.tools(signal) })
     };
 }
