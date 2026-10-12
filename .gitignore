@@ -24,5 +24,6 @@ docs/
 !docs/BACKEND_ARCHITECTURE_REVIEW.md
 !docs/AGENT_EVALUATION.md
 !docs/AGENT_EVALUATION_BASELINE.md
+!docs/GLM47_EVALUATION.md
 
 .editorconfig
