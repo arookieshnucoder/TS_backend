@@ -12,6 +12,7 @@ import { ChatSessionService } from "../src/modules/chat/service/chat-session.ser
 import { InMemoryChatSessionRepository } from "../src/infrastructure/persistence/memory/in-memory-chat-session.repository.js";
 import { ElasticsearchMemorySearch, LocalMemorySearch } from "../src/infrastructure/llm/memory-search.js";
 import { TokenBudget } from "../src/modules/harness/context/tokens.js";
+import { HarnessChatAgent } from "../src/modules/chat/service/harness-chat-agent.js";
 
 const config = loadConfig({ NODE_ENV: "test", AGENT_WORKSPACE_ENABLED: "false" });
 const logger = { info() {}, error() {} };
@@ -49,6 +50,22 @@ test("generic harness runs an injected workflow with custom instructions and too
   })] });
   assert.deepEqual(result, { content: "custom answer", modelTurns: 1, toolCalls: 1 });
   assert.equal(modelCalls, 1); assert.equal(toolCalls, 1);
+});
+
+test("chat run metadata preserves missing request IDs and records message identity separately", async () => {
+  const metadata: Record<string, unknown>[] = [];
+  const agent = new HarnessChatAgent({ async run(input) {
+    metadata.push(input.metadata); return { content: "answer", modelTurns: 1, toolCalls: 0 };
+  } }, async () => [], async s => s.title);
+  const session = { id: "session", requestId: "created", title: "title", createdAt: new Date(), updatedAt: new Date(),
+    messages: [], sessionStatus: "finished" as const, sessionError: null, modelRequestId: null as string | null };
+  const message = { id: "message", role: "user" as const, content: "question" };
+  await agent.run(session, message);
+  assert.equal(metadata[0]!.requestId, null);
+  assert.equal(metadata[0]!.messageId, "message");
+  session.modelRequestId = "actual-request";
+  await agent.run(session, message);
+  assert.equal(metadata[1]!.requestId, "actual-request");
 });
 
 test("chat assembly rejects removed flags and invalid strategies instead of selecting defaults", () => {

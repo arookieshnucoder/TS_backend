@@ -14,9 +14,9 @@ import { loadHarnessConfig, type HarnessConfig } from "../modules/harness/config
  * 但是不建议自己的大模型ApiKey放在里面，这个自己做终端的环境变量来管理更安全。
  */
 export interface AppConfig {
-    observability?: { enabled: boolean; dataDir: string; maxEvents: number };
+    observability: { enabled: boolean; dataDir: string; maxEvents: number };
     llmFallback?: { model: string; baseUrl?: string; apiKey?: string };
-    mcp?: { configFile: string; adminToken?: string; timeoutMs: number };
+    mcp: { configFile: string; adminToken?: string; timeoutMs: number };
     harness: HarnessConfig;
     context: ContextConfig;
     // 后端端口

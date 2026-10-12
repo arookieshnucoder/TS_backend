@@ -56,6 +56,6 @@ export class ToolRegistry {
         if (truncated) text = this.tokens.truncate(text, this.outputTokens - this.tokens.count(suffix)) + suffix;
         this.event("agent.tool", { tool: call.name, callId: call.id, source: tool.source, status, code, attempts, result: text,
             truncated, durationMs: Date.now() - started, resultTokens: this.tokens.count(text) });
-        return { role: "tool", toolCallId: call.id, content: text || "No matching evidence found." };
+        return { role: "tool", toolCallId: call.id, content: text };
     }
 }

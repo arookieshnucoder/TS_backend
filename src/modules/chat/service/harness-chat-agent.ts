@@ -14,7 +14,6 @@ export class HarnessChatAgent implements ChatAgent {
   async run(session: ChatSession, current: ChatMessage, signal?: AbortSignal, context?: ChatAgentRunContext) {
     const snapshot = structuredClone(session);
     const question = current.content;
-    const requestId = session.modelRequestId ?? current.id;
     return abortable(async () => {
       const started = Date.now();
       context?.event("tools.discovery.started");
@@ -23,7 +22,8 @@ export class HarnessChatAgent implements ChatAgent {
       context?.event("tools.discovery.completed", { durationMs: Date.now() - started, count: tools.length,
         tools: tools.map(t => ({ name: t.definition.name, source: t.source, readonly: t.readonly })) });
       return this.harness.run({ history: snapshot.messages.map(({ role, content }) => ({ role, content })),
-        question, tools, metadata: { sessionId: snapshot.id, requestId, ...(context ? { runId: context.runId } : {}) }, onEvent: context?.event }, signal);
+        question, tools, metadata: { sessionId: snapshot.id, requestId: snapshot.modelRequestId,
+          messageId: current.id, ...(context ? { runId: context.runId } : {}) }, onEvent: context?.event }, signal);
     }, signal);
   }
   titleFor(session: ChatSession, signal?: AbortSignal): Promise<string> {

@@ -65,7 +65,7 @@ export class RecoveringModel implements AgentModel {
     private sequence = 0;
     private readonly models: NamedAgentModel[];
     constructor(primary: AgentModel, fallbacks: NamedAgentModel[], private readonly policy: RecoveryPolicy, private readonly event: Event) {
-        if (fallbacks.some(m => !m.name.trim() || m.name.length > 100 || typeof m.model?.turn !== "function")) throw new TypeError("Invalid fallback model");
+        // AgentHarness resolves and validates this chain before starting a run.
         this.models = [{ name: "primary", model: primary }, ...fallbacks];
     }
     async turn(messages: AgentMessage[], tools: ToolDefinition[], signal?: AbortSignal, maxOutputTokens?: number) {

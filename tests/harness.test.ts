@@ -84,6 +84,15 @@ test("registry bounds output, sanitizes execution errors, times out and never sw
   } finally { clearTimeout(keepAlive); }
 });
 
+test("empty tool results remain empty in both observations and returned messages", async () => {
+  const observed: Record<string, unknown>[] = [];
+  const registry = new ToolRegistry(tokens, 128, 1000, (name, fields) => { if (name === "agent.tool") observed.push(fields); });
+  registry.register(defineReadOnlyTool({ name: "empty", description: "Returns an empty text result", parameters: {}, execute: async () => "" }));
+  assert.deepEqual(await registry.execute(call("empty-result", "empty", {})), { role: "tool", toolCallId: "empty-result", content: "" });
+  assert.equal(observed[0]!.status, "success");
+  assert.equal(observed[0]!.result, "");
+});
+
 test("workspace tools search then read evidence with paths and lines, rejecting traversal, secrets and junctions", async () => {
   const root = await mkdtemp(join(tmpdir(), "ask-workspace-"));
   const outside = await mkdtemp(join(tmpdir(), "ask-outside-"));

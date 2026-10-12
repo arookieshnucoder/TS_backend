@@ -59,6 +59,26 @@ test("fallback preserves completed tool results and remains selected without rep
     assert.equal(fallbackCalls, 3);
 });
 
+test("harness validates and snapshots the configured model chain before requests", async () => {
+    const primary: AgentModel = { async turn() { throw transient(); } };
+    const workflow = new AskAgent();
+    const instructions = { system: "test", final: "final" };
+    const logger = { info() {}, error() {} };
+    for (const fallbackModels of [undefined, null, {}, [{ name: "", model: primary }], [{ name: "x".repeat(101), model: primary }], [{ name: "backup", model: {} }]]) {
+        assert.throws(() => new AgentHarness(primary, workflow, instructions, config.context, logger, { fallbackModels } as any), TypeError);
+    }
+    const backup = { name: "configured-backup", model: { async turn() { return answer; } } };
+    const fallbackModels = [backup];
+    const events: Record<string, unknown>[] = [];
+    const harness = new AgentHarness(primary, workflow, instructions, config.context,
+        { ...logger, info(name, fields) { if (name === "agent.fallback") events.push(fields!); } },
+        { recovery: { ...policy, modelRetries: 0 }, fallbackModels });
+    backup.name = "changed-after-assembly";
+    fallbackModels.splice(0, 1, { name: "replacement", model: { async turn() { assert.fail("The configured chain must remain stable"); } } });
+    assert.equal((await harness.run({ history: [], question: "q", tools: [], metadata: {} })).content, "answer");
+    assert.equal(events[0]!.to, "configured-backup");
+});
+
 test("authentication, permission, invalid requests and programming failures never retry or fall back", async () => {
     for (const error of [Object.assign(new Error("denied"), { status: 401 }), Object.assign(new Error("bad"), { status: 400 }), new ToolAccessError(), new Error("invalid model response")]) {
         let calls = 0;

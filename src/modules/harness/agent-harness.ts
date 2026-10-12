@@ -37,15 +37,18 @@ export interface HarnessRunner {
 export class AgentHarness implements HarnessRunner {
     private readonly tokens: TokenBudget;
     private readonly recovery: RecoveryPolicy;
+    private readonly options: Required<Omit<HarnessOptions, "recovery">>;
     constructor(private readonly model: AgentModel, private readonly workflow: AgentWorkflow,
         private readonly instructions: AgentInstructions, private readonly config: ContextConfig,
-        private readonly logger: Logger, private readonly options: HarnessOptions = {}) {
-        if (typeof model?.turn !== "function") throw new TypeError("AgentModel must implement turn; legacy reply providers are unsupported");
+        private readonly logger: Logger, options: HarnessOptions = {}) {
+        if (typeof model?.turn !== "function") throw new TypeError("AgentModel must implement turn");
         if (typeof workflow?.run !== "function") throw new TypeError("AgentWorkflow must implement run");
+        if (Object.hasOwn(options, "fallbackModels") && !Array.isArray(options.fallbackModels)) throw new TypeError("fallbackModels must be an array");
+        const { fallbackModels = [], maxCallsPerStep = 4, toolTimeoutMs = 15000, toolOutputTokens = 2048 } = options;
+        if (fallbackModels.some(m => !m.name.trim() || m.name.length > 100 || typeof m.model?.turn !== "function")) throw new TypeError("Invalid fallback model");
+        this.options = { fallbackModels: fallbackModels.map(({ name, model }) => ({ name, model })), maxCallsPerStep, toolTimeoutMs, toolOutputTokens };
         this.tokens = new TokenBudget(config);
         this.recovery = recoveryPolicy(options.recovery);
-        if (Object.hasOwn(options, "fallbackModels") && !Array.isArray(options.fallbackModels)) throw new TypeError("fallbackModels must be an array");
-        if (options.fallbackModels?.some(m => !m.name.trim() || typeof m.model?.turn !== "function")) throw new TypeError("Invalid fallback model");
     }
     async run(input: HarnessInput, signal?: AbortSignal): Promise<AgentResult> {
         const started = Date.now();
@@ -59,15 +62,15 @@ export class AgentHarness implements HarnessRunner {
         event("agent.started");
         try {
             return await abortable(async () => {
-                const model = new RecoveringModel(this.model, this.options.fallbackModels ?? [], this.recovery, event);
+                const model = new RecoveringModel(this.model, this.options.fallbackModels, this.recovery, event);
                 const compression = new ContextCompressor(model, this.tokens, this.config);
                 const builder = new ContextBuilder(structuredClone(input.history), input.question, this.config,
                     this.tokens, compression, event, this.instructions);
-                const registry = new ToolRegistry(this.tokens, this.options.toolOutputTokens ?? 2048, this.options.toolTimeoutMs ?? 15000, event, this.recovery);
+                const registry = new ToolRegistry(this.tokens, this.options.toolOutputTokens, this.options.toolTimeoutMs, event, this.recovery);
                 const selection = selectTools(input.tools, input.question, this.instructions, this.config, this.tokens);
                 for (const tool of selection.tools) registry.register(tool);
                 if (selection.omitted) event("agent.tools.selected", { included: selection.tools.length, omittedMcpTools: selection.omitted, mcpBudgetTokens: selection.budgetTokens, reason: "context_budget" });
-                const runtime = new HarnessRuntime(model, builder, registry, this.config.maxToolSteps, this.options.maxCallsPerStep ?? 4,
+                const runtime = new HarnessRuntime(model, builder, registry, this.config.maxToolSteps, this.options.maxCallsPerStep,
                     this.config.maxInputTokens, event, signal);
                 const result = await this.workflow.run(runtime, signal);
                 event("agent.completed", { modelTurns: result.modelTurns, toolCalls: result.toolCalls, durationMs: Date.now() - started });

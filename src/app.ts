@@ -25,8 +25,8 @@ export function createApp(
     app.use("/api/health", createHealthModule());
     // 返回给前端的聊天接口
     app.use("/api/chat", createChatModule(chatService, dependencies.errors));
-    app.use("/api/mcp", createMcpModule(dependencies.mcp, config.frontendOrigin, config.mcp?.adminToken, config.nodeEnv === "production"));
-    app.use("/api/observability", createObservabilityModule(dependencies.runs, config.frontendOrigin, config.mcp?.adminToken, config.nodeEnv === "production"));
+    app.use("/api/mcp", createMcpModule(dependencies.mcp, config.frontendOrigin, config.mcp.adminToken, config.nodeEnv === "production"));
+    app.use("/api/observability", createObservabilityModule(dependencies.runs, config.frontendOrigin, config.mcp.adminToken, config.nodeEnv === "production"));
     app.use(notFoundHandler);
     app.use(errorHandler(dependencies.logger));
     // TODO: 可以在这里添加更多的中间件，例如请求日志、身份验证等。
