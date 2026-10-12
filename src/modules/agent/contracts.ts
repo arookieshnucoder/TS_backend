@@ -7,7 +7,7 @@ export interface AgentMessage {
 }
 export interface ToolCall { id: string; name: string; arguments: Record<string, unknown>; }
 export interface ToolDefinition { name: string; description: string; parameters: Record<string, unknown>; }
-export interface AgentTurn { content: string; toolCalls: ToolCall[]; }
+export interface AgentTurn { content: string; toolCalls: ToolCall[]; usage?: { inputTokens: number; outputTokens: number }; }
 /**
  * 只有完整的工具调用回合才会进入下一轮提示或被压缩。
  */

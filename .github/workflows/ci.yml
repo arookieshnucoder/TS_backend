@@ -23,6 +23,8 @@ jobs:
         run: npm test
       - name: 构建
         run: npm run build
+      - name: Agent harness 控制评测
+        run: npm run eval -- --repeats 2 --min-pass-rate 1 --out data/evaluations/ci-${{ github.run_id }}-${{ github.run_attempt }}
       - name: 构建 Docker 镜像
         run: docker build --tag ragagent-backend:ci .
       - name: 验证完整的堆栈配置

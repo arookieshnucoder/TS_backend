@@ -32,6 +32,10 @@ export class LangChainChatModel implements AgentModel {
         const response = await runnable.invoke(input, { signal });
         if (response.invalid_tool_calls?.length) throw new Error("Invalid model tool call");
         return {
+            ...(response.usage_metadata && Number.isSafeInteger(response.usage_metadata.input_tokens) && response.usage_metadata.input_tokens >= 0 &&
+                Number.isSafeInteger(response.usage_metadata.output_tokens) && response.usage_metadata.output_tokens >= 0 ? {
+                    usage: { inputTokens: response.usage_metadata.input_tokens, outputTokens: response.usage_metadata.output_tokens },
+                } : {}),
             content: typeof response.content === "string" ? response.content : response.content
                 .filter(block => block.type === "text").map(block => block.text).join(""),
             toolCalls: (response.tool_calls ?? []).map(call => ({ id: call.id ?? "", name: call.name, arguments: call.args }))

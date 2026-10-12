@@ -1,0 +1,41 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { EvalReport } from "./contracts.js";
+
+const percent = (v: number | null | undefined) => v == null ? "N/A" : `${(100 * v).toFixed(1)}%`;
+const escape = (value: unknown) => String(value).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+const cell = (value: unknown) => String(value).replace(/\|/g, "\\|").replace(/[\r\n]/g, " ");
+export function markdown(report: EvalReport): string {
+    const s = report.summary, p = report.provenance;
+    const rows = report.cases.map(c => `| ${cell(c.id)} | ${cell(c.kind)} | ${c.passRate.successes}/${c.passRate.total} | ${percent(c.passRate.value)} | ${percent(c.passAtK[3])} | ${percent(c.passPowerK[3])} | ${cell(Object.keys(c.failures).join(", ") || "—")} |`).join("\n");
+    return `# Agent + Harness 评测报告\n\n${report.scopeNote}\n\n模式 **${p.mode}**；配置 **${p.profile}**；对照 **${p.variant}**。Git ${p.revision}（dirty=${p.dirty}），数据集 ${p.datasetId}，每题 ${p.repeats} 次，seed=${p.seed}。\n\n` +
+        `通过 ${s.passRate.successes}/${s.passRate.total}（${percent(s.passRate.value)}），Wilson 95% 区间 ${percent(s.passRate.wilson95[0])}–${percent(s.passRate.wilson95[1])}。任务通过 ${percent(s.taskPassRate?.value)}，控制通过 ${percent(s.controlPassRate?.value)}。\n\n` +
+        `延迟 p50=${s.latencyMs.p50.toFixed(1)} ms，p95=${s.latencyMs.p95.toFixed(1)} ms。包含 fixture 建立，不含清理；离线数字不是生产模型延迟。\n\n` +
+        `| 维度 | 均值 | 适用试验数 |\n| --- | --- | --- |\n${Object.entries(s.dimensions).map(([key, v]) => `| ${key} | ${percent(v.value)} | ${v.applicableTrials} |`).join("\n")}\n\n` +
+        `| 资源指标 | 均值 |\n| --- | --- |\n${Object.entries(s.averages).map(([key, v]) => `| ${key} | ${v === null ? "N/A" : v.toFixed(key === "costUsd" ? 8 : 2)} |`).join("\n")}\n\n` +
+        `| 案例 | 类别 | 通过/总数 | 通过率 | pass@3 | pass^3 | 失败原因 |\n| --- | --- | --- | --- | --- | --- | --- |\n${rows}\n\n` +
+        (report.comparison ? `基线 ${report.comparison.baselineRunId}；通过率变化 ${(100 * report.comparison.passRateDelta).toFixed(1)} 个百分点；p95 变化 ${report.comparison.p95DeltaMs.toFixed(1)} ms（描述性，未作显著性检验）。\n\n回归：${report.comparison.regressions.join(", ") || "无"}。\n\n` : "") +
+        `门禁：**${report.gate.passed ? "通过" : "失败"}** ${report.gate.reasons.join(", ")}\n\n${s.recommendations.map(r => `- ${r}`).join("\n")}\n\n` +
+        `数据集哈希 ${p.datasetHash}\n\n评分器哈希 ${p.graderHash}\n\n实现哈希 ${p.systemHash}\n\n完整轨迹见 report.json，交互图表见 report.html。缺失 token/价格不补零；规则事实命中及引用不等同于完整语义正确性。\n`;
+}
+export function html(report: EvalReport): string {
+    const p = report.provenance, s = report.summary;
+    const serialized = JSON.stringify(report).replace(/</g, "\\u003c").replace(/&/g, "\\u0026").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+    const dimensionRows = Object.entries(s.dimensions).map(([key, d]) => `<div class="metric"><span>${escape(key)}</span><div class="track"><i style="width:${(d.value ?? 0) * 100}%"></i></div><strong>${percent(d.value)}</strong><small>n=${d.applicableTrials}</small></div>`).join("");
+    const cases = report.cases.map(c => `<tr class="case-row" data-search="${escape(`${c.id} ${c.category} ${c.kind}`)}"><td>${escape(c.id)}<small>${escape(c.category)} · ${c.kind}</small></td><td>${c.passRate.successes}/${c.passRate.total}</td><td>${percent(c.passRate.value)}</td><td>${percent(c.passAtK[3])}</td><td>${percent(c.passPowerK[3])}</td><td>${escape(Object.keys(c.failures).join(", ") || "—")}</td></tr>`).join("");
+    return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent 评测 ${escape(p.mode)}</title>
+<style>*{box-sizing:border-box}main{overflow-wrap:anywhere}.scroll table{min-width:760px}</style>
+<style>body{margin:0;background:#f4f6f9;color:#263244;font:15px/1.6 system-ui,sans-serif}main{max-width:1120px;margin:40px auto;padding:0 24px}h1{font-size:32px;margin-bottom:8px}h2{font-size:20px}.scope{background:#fff4da;border-left:4px solid #dbab31;padding:16px;margin:20px 0}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.card,section{background:white;border:1px solid #e3e8ef;border-radius:12px;padding:20px;margin-bottom:20px}.card strong{display:block;font-size:30px;color:#285cad}.card small{color:#758297}.metric{display:grid;grid-template-columns:190px 1fr 80px 60px;gap:12px;align-items:center;margin:14px 0}.track{height:10px;background:#eaf0f6;border-radius:10px;overflow:hidden}.track i{display:block;background:#438b7b;height:100%}.scroll{overflow:auto}table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:10px;border-bottom:1px solid #e6ebf2}td small{display:block;color:#7c8b9e}input,select{max-width:100%;padding:8px;border:1px solid #ccd6e3;border-radius:6px;font:inherit}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f6fa;padding:16px;max-height:500px;overflow:auto;font-size:12px}a{color:#285cad}.gate{font-weight:bold;color:${report.gate.passed ? "#28705c" : "#b4483c"}}@media(max-width:700px){.cards{grid-template-columns:repeat(2,1fr)}.metric{grid-template-columns:130px 1fr 60px}.metric small{display:none}main{padding:0 12px}.card{padding:12px}.card strong{font-size:23px}}</style>
+<main><h1>Agent + Harness 评测</h1><p>${escape(p.mode)} · ${escape(p.profile)} · ${escape(p.variant)} · 每题 ${p.repeats} 次</p><div class="scope">${escape(report.scopeNote)}</div>
+<div class="cards"><div class="card">${p.mode === "offline" ? "控制任务" : "评测任务"}通过率<strong>${percent(s.passRate.value)}</strong><small>${s.passRate.successes}/${s.passRate.total} · 非通用能力分数</small></div><div class="card">每次均通过的案例<strong>${report.cases.filter(c => c.allTrialsPassed).length}/${report.cases.length}</strong></div><div class="card">p95 延迟<strong>${s.latencyMs.p95.toFixed(0)} ms</strong><small>${p.mode === "offline" ? "本地 fixture" : "配置模型及 fixture"}</small></div><div class="card">门禁<strong class="gate">${report.gate.passed ? "通过" : "失败"}</strong><small>${escape(report.gate.reasons.join(", "))}</small></div></div>
+<section><h2>各维度与覆盖数量</h2>${dimensionRows}<p>事实与引用是限定标注集的规则覆盖；argumentValidity 包含故意注入的无效参数控制，不能当作真实模型参数正确率。</p></section>
+<section><h2>案例稳定性</h2><input id="filter" aria-label="筛选评测案例" placeholder="按案例、类别筛选"><div class="scroll"><table><thead><tr><th>案例</th><th>通过/总数</th><th>通过率</th><th>pass@3</th><th>pass^3</th><th>失败原因</th></tr></thead><tbody>${cases}</tbody></table></div></section>
+<section><h2>运行轨迹</h2><select id="trial" aria-label="选择试验">${report.trials.map((t, i) => `<option value="${i}">${escape(t.caseId)} #${t.repeat} · ${t.grade.passed ? "PASS" : "FAIL"}</option>`).join("")}</select><pre id="trace"></pre></section>
+<section><h2>下一阶段</h2><ul>${s.recommendations.map(r => `<li>${escape(r)}</li>`).join("")}</ul>${report.comparison ? `<p>基线通过率变化 ${(report.comparison.passRateDelta * 100).toFixed(1)} pp；回归：${escape(report.comparison.regressions.join(", ") || "无")}</p>` : ""}<p>token/cost 完整数据见 JSON/Markdown；缺失供应商数据或价格为 N/A。</p><p><a href="report.md">Markdown</a> · <a href="report.json">完整 JSON</a></p><small>Git ${escape(p.revision)} · dirty=${p.dirty}<br>数据集 ${escape(p.datasetHash)}<br>评分器 ${escape(p.graderHash)}</small></section></main>
+<script id="data" type="application/json">${serialized}</script><script>const r=JSON.parse(document.getElementById('data').textContent);const pick=document.getElementById('trial');function render(){document.getElementById('trace').textContent=JSON.stringify(r.trials[Number(pick.value)],null,2)}pick.addEventListener('change',render);render();document.getElementById('filter').addEventListener('input',e=>{const q=e.target.value.toLowerCase();document.querySelectorAll('.case-row').forEach(row=>row.hidden=!row.dataset.search.toLowerCase().includes(q))});</script></html>`;
+}
+export async function writeReport(report: EvalReport, directory: string): Promise<void> {
+    await mkdir(directory, { recursive: true });
+    for (const [name, content] of [["report.json", JSON.stringify(report, null, 2)], ["report.md", markdown(report)], ["report.html", html(report)]])
+        await writeFile(join(directory, name!), content!, { encoding: "utf8", flag: "wx", mode: 0o600 });
+}
