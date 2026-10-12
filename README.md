@@ -1,4 +1,4 @@
-﻿# Ask Agent 后端
+# Ask Agent 后端
 
 基于 **Node.js + TypeScript + Express 5** 的问答 Agent 服务。支持会话管理、历史记忆检索、工作区只读工具和本地 JSON 持久化。
 
@@ -175,4 +175,3 @@ npm run smoke:agent -- --live
 管理接口：`GET /api/mcp/servers`、`POST /api/mcp/servers/import`、`PATCH /api/mcp/servers/:id`、`POST /api/mcp/servers/:id/test`。导入接受单个配置或 `{ "mcpServers": { "服务id": { ... } } }`。默认禁用，只开放标记 `readOnlyHint: true` 的工具；开启 `allowMutations` 后可提供其他工具。
 
 管理接口默认只接受本机连接与配置的前端 Origin。远程部署在进程环境中设置 `MCP_ADMIN_TOKEN`，请求带 `Authorization: Bearer ...`。MCP 凭据可用 `${ENV_VAR}` 在后端解析，管理响应不会返回配置中的凭据。方案见 [MCP_HARNESS_PLAN.md](docs/MCP_HARNESS_PLAN.md)。
-

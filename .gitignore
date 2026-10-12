@@ -17,5 +17,6 @@ deploy/.env
 docs/
 !docs/
 !docs/MCP_HARNESS_PLAN.md
+!docs/MCP_GUIDE.md
 
 .editorconfig
