@@ -38,3 +38,16 @@
 ## 验收
 
 每阶段执行相关测试及后端 typecheck/build；前端阶段执行全部前端测试和 build。禁止批量删除文件或目录，测试临时产物保留。MCP 官方 SDK 文档：https://ts.sdk.modelcontextprotocol.io/client 。
+
+## 完成记录
+
+四阶段均已完成并测试。
+
+| 阶段 | 验证 | 提交 |
+| --- | --- | --- |
+| MCP 后端 | 62 项测试，三种真实 SDK 传输，构建 | backend a71dee1 |
+| MCP Hub / 教程 | 4 项前端测试，真实前后端 MCP 联调；三种 Chrome 视口；构建 | frontend 742094d / backend 0f6d6c5 |
+| 重试与回退 | 73 项后端测试，4 项前端测试；真实 HTTP 503 回退与 MCP 断线重连；构建 | backend 75c8734 |
+| 可观测性与最终兼容检查 | 最终 83 项后端、5 项前端测试；两端构建；Chrome 导出与三种视口；Compose 环境及可写卷校验 | 本阶段分别提交后端和前端 |
+
+MCP 接入教程见 MCP_GUIDE.md；恢复策略见 HARNESS_RECOVERY.md；记录、接口与 Copilot 参考位置见 AGENT_OBSERVABILITY.md。Docker Compose 新增独立 harness 卷，保留原有会话卷；生产管理接口需要管理员令牌。未启动真实生产部署，协议与模型联调使用本地确定性服务。

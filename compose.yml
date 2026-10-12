@@ -35,6 +35,9 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
       LLM_MODEL: ${LLM_MODEL:-deepseek-flash}
       LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-120000}
+      LLM_FALLBACK_MODEL: ${LLM_FALLBACK_MODEL:-}
+      LLM_FALLBACK_BASE_URL: ${LLM_FALLBACK_BASE_URL:-}
+      LLM_FALLBACK_API_KEY: ${LLM_FALLBACK_API_KEY:-}
       LLM_MAX_INPUT_TOKENS: ${LLM_MAX_INPUT_TOKENS:-32768}
       CONTEXT_CHUNK_TOKENS: ${CONTEXT_CHUNK_TOKENS:-512}
       CONTEXT_OVERLAP_RATIO: ${CONTEXT_OVERLAP_RATIO:-0.15}
@@ -46,6 +49,17 @@ services:
       AGENT_MAX_CALLS_PER_STEP: ${AGENT_MAX_CALLS_PER_STEP:-4}
       AGENT_TOOL_TIMEOUT_MS: ${AGENT_TOOL_TIMEOUT_MS:-15000}
       AGENT_TOOL_OUTPUT_TOKENS: ${AGENT_TOOL_OUTPUT_TOKENS:-2048}
+      AGENT_MODEL_RETRIES: ${AGENT_MODEL_RETRIES:-2}
+      AGENT_TOOL_RETRIES: ${AGENT_TOOL_RETRIES:-1}
+      AGENT_RETRY_BASE_DELAY_MS: ${AGENT_RETRY_BASE_DELAY_MS:-250}
+      AGENT_RETRY_MAX_DELAY_MS: ${AGENT_RETRY_MAX_DELAY_MS:-3000}
+      AGENT_MODEL_ATTEMPT_TIMEOUT_MS: ${AGENT_MODEL_ATTEMPT_TIMEOUT_MS:-30000}
+      MCP_ADMIN_TOKEN: ${MCP_ADMIN_TOKEN:-}
+      MCP_CONFIG_FILE: /app/runtime/mcp-servers.json
+      MCP_TIMEOUT_MS: ${MCP_TIMEOUT_MS:-10000}
+      AGENT_TRACE_ENABLED: ${AGENT_TRACE_ENABLED:-true}
+      AGENT_RUN_DATA_DIR: /app/runtime/runs
+      AGENT_TRACE_MAX_EVENTS: ${AGENT_TRACE_MAX_EVENTS:-512}
       AGENT_WORKSPACE_ENABLED: ${AGENT_WORKSPACE_ENABLED:-true}
       AGENT_WORKSPACE_ROOT: ${AGENT_WORKSPACE_ROOT:-.}
       ELASTICSEARCH_URL: http://elasticsearch:9200
@@ -56,6 +70,7 @@ services:
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
     volumes:
       - sessions:/app/data/sessions
+      - harness:/app/runtime
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -94,4 +109,5 @@ networks:
     internal: true
 volumes:
   sessions:
+  harness:
   elasticsearch:

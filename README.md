@@ -172,6 +172,8 @@ npm run smoke:agent -- --live
 
 后端支持官方 MCP stdio、Streamable HTTP 和 SSE 传输。已有 `defineReadOnlyTool` 工具保持兼容，MCP 工具在每次回答开始时动态发现，并使用服务器命名空间避免重名。服务配置独立持久化，禁用会关闭连接并拦截已经获取的工具句柄。
 
+完整教程：[MCP 接入与自建服务](docs/MCP_GUIDE.md)。恢复策略：[重试与备用模型](docs/HARNESS_RECOVERY.md)。运行诊断：[每个问题的执行记录](docs/AGENT_OBSERVABILITY.md)。
+
 管理接口：`GET /api/mcp/servers`、`POST /api/mcp/servers/import`、`PATCH /api/mcp/servers/:id`、`POST /api/mcp/servers/:id/test`。导入接受单个配置或 `{ "mcpServers": { "服务id": { ... } } }`。默认禁用，只开放标记 `readOnlyHint: true` 的工具；开启 `allowMutations` 后可提供其他工具。
 
 管理接口默认只接受本机连接与配置的前端 Origin。远程部署在进程环境中设置 `MCP_ADMIN_TOKEN`，请求带 `Authorization: Bearer ...`。MCP 凭据可用 `${ENV_VAR}` 在后端解析，管理响应不会返回配置中的凭据。方案见 [MCP_HARNESS_PLAN.md](docs/MCP_HARNESS_PLAN.md)。

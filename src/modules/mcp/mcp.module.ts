@@ -4,10 +4,11 @@ import { AppError } from "../../common/errors/app-error.js";
 import { object } from "./mcp-config.js";
 import type { McpManager } from "./mcp-manager.js";
 
-export function adminAccess(origin: string, token?: string): RequestHandler {
+export function adminAccess(origin: string, token?: string, requireToken = false): RequestHandler {
     return (request, _response, next) => {
         const actualOrigin = request.get("Origin");
         if (actualOrigin && actualOrigin !== origin) return next(new AppError(403, "ADMIN_FORBIDDEN", "管理接口不接受该来源。"));
+        if (requireToken && !token) return next(new AppError(503, "ADMIN_TOKEN_REQUIRED", "生产环境管理功能需要在后端设置 MCP_ADMIN_TOKEN。"));
         if (token) {
             const supplied = Buffer.from(request.get("Authorization")?.replace(/^Bearer /, "") ?? "");
             const expected = Buffer.from(token);
@@ -19,9 +20,9 @@ export function adminAccess(origin: string, token?: string): RequestHandler {
         next();
     };
 }
-export function createMcpModule(manager: McpManager, origin: string, token?: string): Router {
+export function createMcpModule(manager: McpManager, origin: string, token?: string, requireToken = false): Router {
     const router = Router();
-    router.use(adminAccess(origin, token));
+    router.use(adminAccess(origin, token, requireToken));
     router.get("/servers", async (_request, response) => response.json({ data: await manager.list() }));
     router.post("/servers/import", async (request, response) => response.status(201).json({ data: await manager.import(request.body) }));
     router.patch("/servers/:id", async (request, response) => {

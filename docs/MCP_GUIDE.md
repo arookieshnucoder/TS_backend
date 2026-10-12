@@ -18,6 +18,8 @@
 
 每个工具使用包含服务 ID 和哈希的稳定模型名称，多个服务与已有自定义工具同名也不会冲突。模型自行决定是否调用。当前 Agent 消费文本、嵌入的文本资源、资源链接与 `structuredContent`；图片/音频返回说明性占位文本。独立 MCP resources/prompts、采样、用户询问与交互式 OAuth 暂未实现。
 
+MCP 工具描述最多占用当前模型输入预算的 25%，每个回答最多纳入 64 个 MCP 工具；同时为问题、原有工具和上下文压缩保留空间。目录较大时，按当前问题与工具说明的关键词相关性优先选择。原有自定义工具不因 MCP 预算被移除。时间线会记录省略数量；需要其他工具时，可更具体地描述问题或停用无关服务。Hub 的“可用”表示服务授权状态，实际每次回答还受上下文预算约束。
+
 ## 导入第三方配置
 
 按服务作者的安装文档先安装程序并准备凭据，然后导入：
@@ -54,6 +56,8 @@ npm run dev
 ```
 
 管理令牌必须通过进程环境设置。默认管理接口仅允许本机连接；设置 `MCP_ADMIN_TOKEN` 后，需要在 Hub 的“远程管理认证”输入令牌，页面只将其保存在内存中。浏览器来源还必须匹配 `FRONTEND_ORIGIN`。该应用目前没有多用户权限隔离，服务开关是整个后端共享配置；公网部署还需为聊天接口配置应用认证，建议通过受控反向代理提供访问。
+
+`NODE_ENV=production` 时，MCP 与运行记录管理接口必须配置管理员令牌；未配置返回明确的 503，已有聊天功能继续工作。这样反向代理到本机后端也不会意外开放进程启动权限。
 
 ## 自建一个 stdio MCP
 
@@ -136,5 +140,18 @@ HTTP 模式不再调用 `StdioServerTransport`。生产服务应按照 [SDK 服�
 令牌配置时请求都带 `Authorization: Bearer <token>`，写接口只接受 `application/json`。`MCP_CONFIG_FILE` 默认在会话目录的同级 `mcp-servers.json`；不要设到会话 JSON 文件目录里面。`MCP_TIMEOUT_MS` 默认 10000。重启后恢复配置并按需连接；服务停机时会关闭连接与本地进程。
 
 Docker 中的 `localhost` 指后端容器，使用同网络服务名或可访问的主机地址。stdio 程序、运行时与文件必须安装/挂载到后端容器，配置路径按容器路径填写；保存 MCP 配置的目录需要持久化卷。SDK 启动子进程并不提供沙箱，若不信任服务，应在容器或独立低权限账户中运行。
+
+仓库 Compose 配置使用独立 `harness` 卷挂载 `/app/runtime`，保存 MCP 配置与运行记录，保留原有会话卷。在 `deploy/.env` 或启动环境设置 `MCP_ADMIN_TOKEN` 即可启用生产管理接口。自建程序及其专用凭据可通过自己的 Compose override 添加：
+
+```yaml
+services:
+  backend:
+    environment:
+      MY_SERVICE_TOKEN: ${MY_SERVICE_TOKEN}
+    volumes:
+      - ./my-mcp:/app/mcp:ro
+```
+
+把 stdio 的 `args` 填为 `/app/mcp/server.mjs`。自建服务的额外依赖也需要安装在该服务目录或自定义后端镜像内。使用 `docker compose --env-file deploy/.env -f compose.yml -f compose.mcp.yml up -d` 载入上述 override，Hub 的 `${MY_SERVICE_TOKEN}` 才能从容器环境解析。
 
 协议与客户端实现依据：[MCP SDK 客户端文档](https://ts.sdk.modelcontextprotocol.io/client)、[MCP 传输规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)。本仓库锁定 SDK 1.32.1，升级 SDK 时应重跑三种传输测试。

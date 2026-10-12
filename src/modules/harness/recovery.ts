@@ -60,12 +60,14 @@ export async function retry<T>(operation: (attempt: number) => Promise<T>, retri
 /** Scoped to one run: a successful fallback remains selected for subsequent turns. */
 export class RecoveringModel implements AgentModel {
     private active = 0;
+    private sequence = 0;
     private readonly models: NamedAgentModel[];
     constructor(primary: AgentModel, fallbacks: NamedAgentModel[], private readonly policy: RecoveryPolicy, private readonly event: Event) {
         if (fallbacks.some(m => !m.name.trim() || m.name.length > 100 || typeof m.model?.turn !== "function")) throw new TypeError("Invalid fallback model");
         this.models = [{ name: "primary", model: primary }, ...fallbacks];
     }
     async turn(messages: AgentMessage[], tools: ToolDefinition[], signal?: AbortSignal, maxOutputTokens?: number) {
+        const modelCallId = `model-${++this.sequence}`;
         for (;;) {
             signal?.throwIfAborted();
             const selected = this.models[this.active]!;
@@ -74,22 +76,23 @@ export class RecoveringModel implements AgentModel {
                     const timeout = AbortSignal.timeout(this.policy.modelAttemptTimeoutMs);
                     const scope = signal ? AbortSignal.any([signal, timeout]) : timeout;
                     const started = Date.now();
-                    this.event("agent.model.started", { model: selected.name, attempt, tools: tools.length });
+                    this.event("agent.model.started", { modelCallId, model: selected.name, attempt, tools: tools.length, messageCount: messages.length });
                     try {
                         const result = await abortable(() => selected.model.turn(structuredClone(messages), structuredClone(tools), scope, maxOutputTokens), scope);
                         scope.throwIfAborted();
-                        this.event("agent.model.completed", { model: selected.name, attempt, durationMs: Date.now() - started, toolCalls: result.toolCalls.length });
+                        this.event("agent.model.completed", { modelCallId, model: selected.name, attempt, durationMs: Date.now() - started, toolCalls: result.toolCalls.length,
+                            calls: result.toolCalls.map(call => ({ id: call.id, name: call.name, arguments: call.arguments })) });
                         return result;
                     } catch (error) {
-                        this.event("agent.model.failed", { model: selected.name, attempt, durationMs: Date.now() - started, code: failureCode(error), cancelled: signal?.aborted ?? false });
+                        this.event("agent.model.failed", { modelCallId, model: selected.name, attempt, durationMs: Date.now() - started, code: failureCode(error), cancelled: signal?.aborted ?? false });
                         throw error;
                     }
-                }, this.policy.modelRetries, this.policy, signal, this.event, { operation: "model", model: selected.name });
+                }, this.policy.modelRetries, this.policy, signal, this.event, { operation: "model", modelCallId, model: selected.name });
             } catch (error) {
                 signal?.throwIfAborted();
                 if (!retryable(error) || this.active + 1 >= this.models.length) throw error;
                 this.active++;
-                this.event("agent.fallback", { from: selected.name, to: this.models[this.active]!.name, code: failureCode(error) });
+                this.event("agent.fallback", { modelCallId, from: selected.name, to: this.models[this.active]!.name, code: failureCode(error) });
             }
         }
     }

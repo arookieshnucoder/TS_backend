@@ -13,6 +13,7 @@ const fileSettings = [
 	"MCP_CONFIG_FILE", "MCP_TIMEOUT_MS",
 	"LLM_FALLBACK_MODEL", "LLM_FALLBACK_BASE_URL", "AGENT_MODEL_RETRIES", "AGENT_TOOL_RETRIES",
 	"AGENT_RETRY_BASE_DELAY_MS", "AGENT_RETRY_MAX_DELAY_MS", "AGENT_MODEL_ATTEMPT_TIMEOUT_MS",
+	"AGENT_TRACE_ENABLED", "AGENT_RUN_DATA_DIR", "AGENT_TRACE_MAX_EVENTS",
 ] as const;
 
 // Load only non-secret settings. Credentials are inherited from the launching terminal.

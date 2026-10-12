@@ -133,7 +133,9 @@ export class McpManager {
         this.pending.set(config.id, connecting);
         try { return await connecting; } finally { if (this.pending.get(config.id) === connecting) this.pending.delete(config.id); }
     }
-    private async discover(config: McpServerConfig, signal?: AbortSignal): Promise<RegisteredTool[]> {
+    private async discover(config: McpServerConfig, signal?: AbortSignal, event?: (name: string, fields: Record<string, unknown>) => void): Promise<RegisteredTool[]> {
+        const started = Date.now();
+        event?.("mcp.discovery.started", { serverId: config.id, transport: config.transport });
         const scope = signal ? AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs)]) : AbortSignal.timeout(this.timeoutMs);
         try {
             const connection = await abortable(() => this.connection(config), scope);
@@ -161,8 +163,11 @@ export class McpManager {
             if (this.configs.find(c => c.id === config.id) !== config) throw new ToolAccessError("MCP configuration changed");
             this.views.set(config.id, { ...this.view(config), status: "connected", error: undefined,
                 tools: catalog.map(t => ({ name: t.name, description: (t.description ?? "").slice(0, 500), readonly: t.annotations?.readOnlyHint === true, available: t.annotations?.readOnlyHint === true || config.allowMutations })) });
-            return tools.filter(t => t.readonly || config.allowMutations);
+            const available = tools.filter(t => t.readonly || config.allowMutations);
+            event?.("mcp.discovery.completed", { serverId: config.id, durationMs: Date.now() - started, count: catalog.length, available: available.length });
+            return available;
         } catch (error) {
+            event?.("mcp.discovery.failed", { serverId: config.id, durationMs: Date.now() - started, cancelled: signal?.aborted ?? false });
             signal?.throwIfAborted();
             if (this.configs.find(c => c.id === config.id) === config) {
                 this.views.set(config.id, { ...this.view(config), status: "error", error: "连接或工具发现失败，请检查地址、进程、凭据和 JSON Schema。", tools: [] });
@@ -180,11 +185,11 @@ export class McpManager {
         await this.discover(config);
         return this.view(config);
     }
-    async tools(signal?: AbortSignal): Promise<RegisteredTool[]> {
+    async tools(signal?: AbortSignal, event?: (name: string, fields: Record<string, unknown>) => void): Promise<RegisteredTool[]> {
         signal?.throwIfAborted();
         if (this.closed) return [];
         try { await this.initialize(); } catch { this.logger.error("mcp.catalog_failed"); return []; }
-        return (await Promise.all(this.configs.filter(c => c.enabled).map(c => this.discover(c, signal)))).flat();
+        return (await Promise.all(this.configs.filter(c => c.enabled).map(c => this.discover(c, signal, event)))).flat();
     }
     async close(): Promise<void> {
         this.closed = true;

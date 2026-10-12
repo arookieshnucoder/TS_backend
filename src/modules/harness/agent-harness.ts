@@ -8,6 +8,8 @@ import { ContextBuilder } from "./context-builder.js";
 import { ToolRegistry, type RegisteredTool } from "./tool-registry.js";
 import { abortable } from "./cancellation.js";
 import { RecoveringModel, recoveryPolicy, type RecoveryPolicy, type NamedAgentModel } from "./recovery.js";
+import { redact } from "../../common/logging/redaction.js";
+import { selectTools } from "./tool-selection.js";
 
 export interface HarnessOptions {
     recovery?: Partial<RecoveryPolicy>;
@@ -17,6 +19,7 @@ export interface HarnessOptions {
     toolOutputTokens?: number;
 }
 export interface HarnessInput {
+    onEvent?(name: string, fields?: Record<string, unknown>): void;
     history: AgentMessage[];
     question: string;
     tools: RegisteredTool[];
@@ -45,7 +48,12 @@ export class AgentHarness implements HarnessRunner {
     async run(input: HarnessInput, signal?: AbortSignal): Promise<AgentResult> {
         const started = Date.now();
         const metadata = { ...input.metadata };
-        const event = (name: string, fields: Record<string, unknown> = {}) => this.logger.info(name, { ...metadata, ...fields });
+        const event = (name: string, fields: Record<string, unknown> = {}) => {
+            // Content previews are persisted through the run recorder, not emitted to stdout.
+            const metrics = Object.fromEntries(Object.entries(fields).filter(([key]) => !["arguments", "result", "content", "calls", "question"].includes(key)));
+            this.logger.info(name, redact({ ...metadata, ...metrics }) as Record<string, unknown>);
+            try { input.onEvent?.(name, fields); } catch { this.logger.error("trace.observer_failed", { runId: metadata.runId }); }
+        };
         event("agent.started");
         try {
             return await abortable(async () => {
@@ -54,7 +62,9 @@ export class AgentHarness implements HarnessRunner {
                 const builder = new ContextBuilder(structuredClone(input.history), input.question, this.config,
                     this.tokens, compression, event, this.instructions);
                 const registry = new ToolRegistry(this.tokens, this.options.toolOutputTokens ?? 2048, this.options.toolTimeoutMs ?? 15000, event, this.recovery);
-                for (const tool of input.tools) registry.register(tool);
+                const selection = selectTools(input.tools, input.question, this.instructions, this.config, this.tokens);
+                for (const tool of selection.tools) registry.register(tool);
+                if (selection.omitted) event("agent.tools.selected", { included: selection.tools.length, omittedMcpTools: selection.omitted, mcpBudgetTokens: selection.budgetTokens, reason: "context_budget" });
                 const scopedSignal = (operation?: AbortSignal) => signal && operation ? AbortSignal.any([signal, operation]) : signal ?? operation;
                 const result = await this.workflow.run({
                     tools: registry.definitions(), maxToolSteps: this.config.maxToolSteps, maxCallsPerStep: this.options.maxCallsPerStep ?? 4,

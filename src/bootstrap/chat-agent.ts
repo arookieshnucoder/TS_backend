@@ -63,8 +63,8 @@ export function createChatAgent(repository: ChatSessionRepository, model: AgentM
         return [...createMemoryTools(session, candidates, searchFactory(), compression, config),
         ...(options.workspaceRoot ? createWorkspaceTools(options.workspaceRoot, options.excludedPaths) : [])];
     });
-    return new HarnessChatAgent(harness, async (session, signal) => {
-        const [custom, extra] = await Promise.all([toolFactory(session, signal), options.additionalTools?.(session, signal) ?? []]);
+    return new HarnessChatAgent(harness, async (session, signal, context) => {
+        const [custom, extra] = await Promise.all([toolFactory(session, signal, context), options.additionalTools?.(session, signal, context) ?? []]);
         return [...custom, ...extra];
     }, options.title ?? (async (session, signal) => {
         try { return await abortable(() => title.execute(session, signal), signal); }

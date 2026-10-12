@@ -12,9 +12,11 @@ import { LocalMemorySearch, ElasticsearchMemorySearch } from "../infrastructure/
 import { McpManager } from "../modules/mcp/mcp-manager.js";
 import { dirname, join } from "node:path";
 import type { NamedAgentModel } from "../modules/harness/recovery.js";
+import { RunTraceStore } from "../modules/observability/run-trace.js";
 
 
 export interface AppDependencies {
+    runs?: RunTraceStore;
     mcp: McpManager;
     errors: ErrorContainer;
     chatSessionRepository: ChatSessionRepository;
@@ -26,7 +28,7 @@ export interface AppDependencies {
 export type DependencyOverrides = Partial<AppDependencies> & { agentModel?: AgentModel; fallbackModels?: NamedAgentModel[] };
 
 export function createDependencies(overrides: DependencyOverrides = {}, config: AppConfig = loadConfig()): AppDependencies {
-    const allowed = new Set(["errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "mcp", "fallbackModels"]);
+    const allowed = new Set(["errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "mcp", "fallbackModels", "runs"]);
     for (const key of Object.keys(overrides)) {
         if (!allowed.has(key)) throw new TypeError(`Unsupported dependency override: ${key}. Use agentModel or agentHarness; legacy chatModel/contextHarness are unsupported.`);
         if (overrides[key as keyof DependencyOverrides] == null) throw new TypeError(`Dependency override ${key} must not be null or undefined`);
@@ -40,7 +42,10 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
     const repository = overrides.chatSessionRepository ?? new JsonChatSessionRepository(config.sessionDataDir);
     const log = overrides.logger ?? logger;
     const mcp = overrides.mcp ?? new McpManager(config.mcp?.configFile ?? join(dirname(config.sessionDataDir), "mcp-servers.json"), log, undefined, config.mcp?.timeoutMs);
+    const runs = overrides.runs ?? (config.observability?.enabled ? new RunTraceStore(config.observability.dataDir, log,
+        [config.llmApiKey, config.llmFallback?.apiKey, config.mcp?.adminToken], config.observability.maxEvents) : undefined);
     return {
+        runs,
         mcp,
         errors,
         chatSessionRepository: repository,
@@ -50,6 +55,7 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
                 new LocalMemorySearch(new TokenBudget(config.context)), config.context, log,
             { ...config.harness, fallbackModels: overrides.fallbackModels ?? (!overrides.agentModel && config.llmFallback ? [{ name: config.llmFallback.model,
                 model: new LangChainChatModel({ ...config, llmModel: config.llmFallback.model, llmBaseUrl: config.llmFallback.baseUrl, llmApiKey: config.llmFallback.apiKey }, errors) }] : []),
-                excludedPaths: [config.sessionDataDir, config.mcp?.configFile ?? join(dirname(config.sessionDataDir), "mcp-servers.json")], additionalTools: (_session, signal) => mcp.tools(signal) })
+                excludedPaths: [config.sessionDataDir, ...(config.observability ? [config.observability.dataDir] : []), config.mcp?.configFile ?? join(dirname(config.sessionDataDir), "mcp-servers.json")],
+                additionalTools: (_session, signal, context) => mcp.tools(signal, context?.event) })
     };
 }

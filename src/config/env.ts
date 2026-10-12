@@ -3,7 +3,7 @@
  */
 
 import { fileURLToPath } from "node:url";
-import { join, dirname } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { loadEnvironment } from "./environment.js";
 import { loadContextConfig, type ContextConfig } from "../modules/harness/context/config.js";
 import { loadHarnessConfig, type HarnessConfig } from "../modules/harness/config.js";
@@ -14,6 +14,7 @@ import { loadHarnessConfig, type HarnessConfig } from "../modules/harness/config
  * 但是不建议自己的大模型ApiKey放在里面，这个自己做终端的环境变量来管理更安全。
  */
 export interface AppConfig {
+    observability?: { enabled: boolean; dataDir: string; maxEvents: number };
     llmFallback?: { model: string; baseUrl?: string; apiKey?: string };
     mcp?: { configFile: string; adminToken?: string; timeoutMs: number };
     harness: HarnessConfig;
@@ -65,18 +66,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
         if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Invalid LLM_BASE_URL");
     }
     const sessionDataDir = env.SESSION_DATA_DIR ?? fileURLToPath(new URL("../../data/sessions/", import.meta.url));
+    const traceEnabled = env.AGENT_TRACE_ENABLED ?? "true";
+    const maxEvents = Number(env.AGENT_TRACE_MAX_EVENTS ?? "512");
+    if (!["true", "false"].includes(traceEnabled) || !Number.isInteger(maxEvents) || maxEvents < 2 || maxEvents > 1024) throw new Error("Invalid agent trace settings");
     const mcpTimeout = Number(env.MCP_TIMEOUT_MS ?? "10000");
     if (!Number.isInteger(mcpTimeout) || mcpTimeout < 1 || mcpTimeout > 120000) throw new Error("MCP_TIMEOUT_MS must be 1..120000");
     let llmFallback: AppConfig["llmFallback"];
-    if (env.LLM_FALLBACK_MODEL !== undefined) {
+    if (env.LLM_FALLBACK_MODEL !== undefined && env.LLM_FALLBACK_MODEL !== "") {
         if (!env.LLM_FALLBACK_MODEL.trim()) throw new Error("LLM_FALLBACK_MODEL must be non-empty");
-        const baseUrl = env.LLM_FALLBACK_BASE_URL ?? llmBaseUrl;
+        const baseUrl = env.LLM_FALLBACK_BASE_URL || llmBaseUrl;
         const url = new URL(baseUrl);
         if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Invalid LLM_FALLBACK_BASE_URL");
         if (baseUrl !== llmBaseUrl && !env.LLM_FALLBACK_API_KEY) throw new Error("A different fallback endpoint requires LLM_FALLBACK_API_KEY");
-        llmFallback = { model: env.LLM_FALLBACK_MODEL, baseUrl, apiKey: env.LLM_FALLBACK_API_KEY ?? env.LLM_API_KEY };
+        llmFallback = { model: env.LLM_FALLBACK_MODEL, baseUrl, apiKey: env.LLM_FALLBACK_API_KEY || env.LLM_API_KEY };
     } else if (env.LLM_FALLBACK_BASE_URL || env.LLM_FALLBACK_API_KEY) throw new Error("Fallback settings require LLM_FALLBACK_MODEL");
     return {
+        observability: { enabled: traceEnabled === "true", dataDir: env.AGENT_RUN_DATA_DIR ?? join(dirname(sessionDataDir), `${basename(sessionDataDir)}-runs`), maxEvents },
         llmFallback,
         mcp: { configFile: env.MCP_CONFIG_FILE ?? join(dirname(sessionDataDir), "mcp-servers.json"), adminToken: env.MCP_ADMIN_TOKEN || undefined, timeoutMs: mcpTimeout },
         port, frontendOrigin, nodeEnv, shutdownTimeoutMs: 5000, context: loadContextConfig(env), harness: loadHarnessConfig(env),

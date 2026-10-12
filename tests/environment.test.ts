@@ -20,6 +20,7 @@ test("backend env file restores port/origin but never supplies credentials", asy
       "ELASTICSEARCH_API_KEY=ignored-index-key", "EMBEDDING_API_KEY=ignored-embedding-key",
       "MCP_CONFIG_FILE=./data/custom-mcp.json", "MCP_TIMEOUT_MS=3000", "MCP_ADMIN_TOKEN=ignored-admin-key",
       "AGENT_MODEL_RETRIES=1", "AGENT_TOOL_RETRIES=0", "LLM_FALLBACK_MODEL=backup", "LLM_FALLBACK_API_KEY=ignored-fallback-key",
+      "AGENT_TRACE_ENABLED=false", "AGENT_RUN_DATA_DIR=./data/custom-runs", "AGENT_TRACE_MAX_EVENTS=128",
     ].join("\n"));
     const env = loadEnvironment({}, path);
     const config = loadConfig(env);
@@ -43,6 +44,9 @@ test("backend env file restores port/origin but never supplies credentials", asy
     assert.equal(config.harness.recovery.toolRetries, 0);
     assert.equal(config.llmFallback?.model, "backup");
     assert.equal(config.llmFallback?.apiKey, undefined);
+    assert.equal(config.observability?.enabled, false);
+    assert.equal(config.observability?.dataDir, "./data/custom-runs");
+    assert.equal(config.observability?.maxEvents, 128);
     assert.equal(env.OPENAI_API_KEY, undefined);
     const terminal = { PORT: "8090", LLM_API_KEY: "terminal-key", INTERNAL_API_TOKEN: "terminal-token" };
     const overridden = loadConfig(loadEnvironment(terminal, path));

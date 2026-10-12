@@ -40,21 +40,26 @@ export class ToolRegistry {
         const tool = this.entries.get(call.name);
         if (!tool) throw new Error("Unknown tool");
         const started = Date.now();
+        this.event("agent.tool.started", { tool: call.name, callId: call.id, arguments: call.arguments, source: tool.source, readonly: tool.readonly });
         let text: string;
         let status = "success";
+        let code: string | undefined;
+        let attempts = 0;
         try {
             if (!call.arguments || typeof call.arguments !== "object" || Array.isArray(call.arguments)) throw new ToolInputError("Expected a JSON object");
             tool.validate(call.arguments);
             const timeout = AbortSignal.timeout(this.timeoutMs);
             const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
-            text = await retry(() => abortable(() => tool.execute(structuredClone(call.arguments), combined), combined),
+            text = await retry(attempt => { attempts = attempt; return abortable(() => tool.execute(structuredClone(call.arguments), combined), combined); },
                 tool.idempotent === true ? this.recovery.toolRetries : 0, this.recovery, combined, this.event,
                 { operation: "tool", tool: call.name, callId: call.id });
+            signal?.throwIfAborted();
         } catch (error) {
+            if (signal?.aborted) this.event("agent.tool", { tool: call.name, callId: call.id, source: tool.source, status: "cancelled", attempts, durationMs: Date.now() - started });
             signal?.throwIfAborted();
             status = "error";
             // Raw exceptions may contain provider credentials or absolute paths.
-            const code = error instanceof ToolInputError ? "INVALID_ARGUMENTS" : error instanceof ToolAccessError ? "ACCESS_DENIED" :
+            code = error instanceof ToolInputError ? "INVALID_ARGUMENTS" : error instanceof ToolAccessError ? "ACCESS_DENIED" :
                 error instanceof Error && error.name === "TimeoutError" ? "TOOL_TIMEOUT" : "TOOL_FAILED";
             text = JSON.stringify({ error: code, message: error instanceof ToolInputError ? error.message : "Tool unavailable or access denied. Refine the request or report the limitation." });
         }
@@ -62,7 +67,8 @@ export class ToolRegistry {
         const suffix = "\n[Tool output truncated; narrow the query or request a smaller line range.]";
         const truncated = this.tokens.count(text) > this.outputTokens;
         if (truncated) text = this.tokens.truncate(text, this.outputTokens - this.tokens.count(suffix)) + suffix;
-        this.event("agent.tool", { tool: call.name, callId: call.id, status, truncated, durationMs: Date.now() - started, resultTokens: this.tokens.count(text) });
+        this.event("agent.tool", { tool: call.name, callId: call.id, source: tool.source, status, code, attempts, result: text,
+            truncated, durationMs: Date.now() - started, resultTokens: this.tokens.count(text) });
         return { role: "tool", toolCallId: call.id, content: text || "No matching evidence found." };
     }
 }

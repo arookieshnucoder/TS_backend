@@ -114,6 +114,7 @@ test("tool retry shares one timeout budget and cancellation cannot leak a succes
 });
 
 test("fallback settings reject accidental credential forwarding and invalid retry budgets", () => {
+    assert.equal(loadConfig({ LLM_FALLBACK_MODEL: "", LLM_FALLBACK_BASE_URL: "", LLM_FALLBACK_API_KEY: "" }).llmFallback, undefined);
     assert.throws(() => loadConfig({ LLM_API_KEY: "primary-secret", LLM_FALLBACK_MODEL: "backup", LLM_FALLBACK_BASE_URL: "https://different.example" }), /requires LLM_FALLBACK_API_KEY/);
     const configured = loadConfig({ LLM_API_KEY: "primary-secret", LLM_FALLBACK_API_KEY: "backup-secret", LLM_FALLBACK_MODEL: "backup", LLM_FALLBACK_BASE_URL: "https://different.example" });
     assert.equal(configured.llmFallback?.apiKey, "backup-secret");

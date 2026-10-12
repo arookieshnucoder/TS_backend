@@ -23,6 +23,9 @@ import { createChatAgent } from "../src/bootstrap/chat-agent.js";
 import { InMemoryChatSessionRepository } from "../src/infrastructure/persistence/memory/in-memory-chat-session.repository.js";
 import { defineReadOnlyTool } from "../src/modules/harness/define-tool.js";
 import { recoveryPolicy } from "../src/modules/harness/recovery.js";
+import { selectTools } from "../src/modules/harness/tool-selection.js";
+import { AgentHarness } from "../src/modules/harness/agent-harness.js";
+import { AskAgent } from "../src/modules/agent/ask-agent.js";
 
 const logger = { info() {}, error() {} };
 const fixture = fileURLToPath(new URL("./fixtures/mcp-server.mjs", import.meta.url));
@@ -119,6 +122,23 @@ test("config parsing and text conversion handle credentials, binary content and 
     assert.throws(() => resolveValues({ KEY: "${TOKEN}" }, {}));
     for (const value of [{ id: "a", url: "file:///secret" }, { id: "a", url: "https://u:p@host/mcp" }, { id: "a", command: "node", args: [1] }, { id: "a", command: "node", enabled: "yes" }, { id: "../a", command: "node" }]) assert.throws(() => parseImport(value));
     assert.doesNotMatch(toolResultText({ content: [{ type: "image", data: "secret-base64", mimeType: "image/png" }] }), /secret-base64/);
+});
+
+test("large MCP catalogs retain custom tools and choose relevant tools within a bounded context", async () => {
+    const custom = defineReadOnlyTool({ name: "original", description: "original", parameters: {}, execute: async () => "original works" });
+    const external = Array.from({ length: 100 }, (_, i) => ({ ...custom, source: { type: "mcp" as const, serverId: "catalog", toolName: `remote_${i}` },
+        definition: { ...custom.definition, name: `remote_${i}`, description: i === 99 ? "查询天气 forecast" : `Remote ${i} ${"unrelated description ".repeat(100)}` } }));
+    const selected = selectTools([custom, ...external], "forecast 天气", { system: "test", final: "final" }, config.context, tokens);
+    assert.equal(selected.tools[0], custom); assert.ok(selected.omitted > 0);
+    assert.equal(selected.tools[1]!.definition.name, "remote_99");
+    assert.ok(tokens.count(JSON.stringify(selected.tools.slice(1).map(t => t.definition))) <= config.context.maxInputTokens * .25 + 16);
+    let turns = 0;
+    const harness = new AgentHarness({ async turn(messages, tools) {
+        assert.ok(tools.some(t => t.name === "original"));
+        if (turns++ === 0) return { content: "", toolCalls: [{ id: "original", name: "original", arguments: {} }] };
+        assert.equal(messages.at(-1)!.content, "original works"); return { content: "answer", toolCalls: [] };
+    } }, new AskAgent(), { system: "test", final: "final" }, config.context, logger);
+    assert.equal((await harness.run({ history: [], question: "forecast 天气", metadata: {}, tools: [custom, ...external] })).content, "answer");
 });
 
 for (const mode of ["http", "sse"] as const) test(`real ${mode} MCP transport initializes and executes through the registry`, async () => {
