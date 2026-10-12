@@ -3,7 +3,7 @@ import type { ChatSession, ChatMessage } from "../entity/chat-session.entity.js"
 import type { ContextConfig } from "../../harness/context/config.js";
 import type { TokenBudget } from "../../harness/context/tokens.js";
 import type { MemorySearch } from "./memory-search.js";
-import type { ContextCompressor } from "../../harness/context/services.js";
+import type { TextCompressor } from "../../harness/context/contracts.js";
 
 export const transcript = (messages: ChatMessage[]) => messages.map(m => `${m.role}: ${m.content}`).join("\n");
 
@@ -35,7 +35,7 @@ export class SessionTitleGenerator {
 }
 
 export class SharedMemoryRetriever {
-  constructor(private readonly search: MemorySearch, private readonly compression: ContextCompressor,
+  constructor(private readonly search: MemorySearch, private readonly compression: TextCompressor,
     private readonly config: ContextConfig) {}
   async execute({ sessions, query }: { sessions: ChatSession[]; query: string }, signal?: AbortSignal) {
     const candidates = [...sessions].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).slice(0, 10);

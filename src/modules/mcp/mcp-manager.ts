@@ -11,7 +11,7 @@ import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { Logger } from "../../common/logging/logger.js";
 import { AppError } from "../../common/errors/app-error.js";
 import { abortable } from "../harness/cancellation.js";
-import { ToolAccessError, type RegisteredTool } from "../harness/tool-registry.js";
+import { ToolAccessError, type RegisteredTool } from "../harness/tool-contracts.js";
 import { parseImport, parseServer, resolveValues, type McpServerConfig } from "./mcp-config.js";
 import { adaptMcpTool } from "./mcp-tools.js";
 

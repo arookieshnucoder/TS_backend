@@ -2,20 +2,7 @@ import type { AgentMessage, ToolCall, ToolDefinition } from "../agent/contracts.
 import type { TokenBudget } from "./context/tokens.js";
 import { abortable } from "./cancellation.js";
 import { recoveryPolicy, retry, type RecoveryPolicy } from "./recovery.js";
-
-export class ToolInputError extends Error { }
-export class ToolAccessError extends Error { }
-export class ToolExecutionError extends Error { }
-/** Harness 内部执行契约。业务工具统一通过 defineReadOnlyTool() 构建。 */
-export interface RegisteredTool {
-    definition: ToolDefinition;
-    readonly: boolean;
-    /** Explicitly safe to repeat after a transient failure. */
-    idempotent?: boolean;
-    source?: { type: "custom" | "mcp"; serverId?: string; toolName?: string };
-    validate(input: Record<string, unknown>): void;
-    execute(input: Record<string, unknown>, signal?: AbortSignal): Promise<string>;
-}
+import { ToolInputError, ToolAccessError, type RegisteredTool } from "./tool-contracts.js";
 
 /**
  * 工具注册表，负责管理工具的注册、验证和执行。

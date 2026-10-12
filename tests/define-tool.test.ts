@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { defineReadOnlyTool, integerParameter, stringParameter } from "../src/modules/harness/define-tool.js";
-import { ToolInputError, ToolRegistry } from "../src/modules/harness/tool-registry.js";
+import { ToolRegistry } from "../src/modules/harness/tool-registry.js";
+import { ToolInputError } from "../src/modules/harness/tool-contracts.js";
 import { TokenBudget } from "../src/modules/harness/context/tokens.js";
 import { loadContextConfig } from "../src/modules/harness/context/config.js";
 import { createWorkspaceTools } from "../src/modules/harness/workspace-tools.js";

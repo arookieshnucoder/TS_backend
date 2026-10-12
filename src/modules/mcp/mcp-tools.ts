@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { ToolInputError, ToolExecutionError, type RegisteredTool } from "../harness/tool-registry.js";
+import { ToolInputError, ToolExecutionError, type RegisteredTool } from "../harness/tool-contracts.js";
 
 export function mcpToolName(serverId: string, toolName: string): string {
     const hash = createHash("sha256").update(`${serverId}\0${toolName}`).digest("hex").slice(0, 16);

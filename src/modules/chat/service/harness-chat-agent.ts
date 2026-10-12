@@ -1,7 +1,7 @@
 import type { ChatAgent, ChatAgentRunContext } from "./chat-agent.js";
 import type { ChatSession, ChatMessage } from "../entity/chat-session.entity.js";
 import type { HarnessRunner } from "../../harness/agent-harness.js";
-import type { RegisteredTool } from "../../harness/tool-registry.js";
+import type { RegisteredTool } from "../../harness/tool-contracts.js";
 import { abortable } from "../../harness/cancellation.js";
 
 export type ChatToolFactory = (session: ChatSession, signal?: AbortSignal, context?: ChatAgentRunContext) => Promise<RegisteredTool[]>;

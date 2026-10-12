@@ -1,7 +1,6 @@
 import { errorContainer, type ErrorContainer } from "../../common/errors/error-container.js";
 import { ChatOpenAI } from "@langchain/openai";
-import type { AppConfig } from "../../config/env.js";
-import type { AgentModel } from "../../modules/agent/model.js";
+import type { AgentModel, LlmConfig } from "../../modules/agent/model.js";
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import type { AgentMessage, ToolDefinition } from "../../modules/agent/contracts.js";
 
@@ -10,7 +9,7 @@ import type { AgentMessage, ToolDefinition } from "../../modules/agent/contracts
  * 封装了与 LangChain 聊天模型的交互逻辑，包括消息转换、工具调用和响应处理。
  */
 export class LangChainChatModel implements AgentModel {
-    constructor(private readonly config: AppConfig, private readonly errors: ErrorContainer = errorContainer) { }
+    constructor(private readonly config: LlmConfig, private readonly errors: ErrorContainer = errorContainer) { }
     private model(maxOutputTokens = 4096) {
         if (!this.config.llmApiKey) return this.errors.fail("MODEL_REQUEST_FAILED", "后端未设置 LLM_API_KEY。");
         return new ChatOpenAI({

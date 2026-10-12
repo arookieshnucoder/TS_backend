@@ -1,4 +1,4 @@
-import type { RegisteredTool } from "./tool-registry.js";
+import type { RegisteredTool } from "./tool-contracts.js";
 import type { TokenBudget } from "./context/tokens.js";
 import type { ContextConfig } from "./context/config.js";
 import type { AgentInstructions } from "../agent/contracts.js";

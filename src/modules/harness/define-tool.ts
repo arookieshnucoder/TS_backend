@@ -1,4 +1,4 @@
-import { ToolInputError, type RegisteredTool } from "./tool-registry.js";
+import { ToolInputError, type RegisteredTool } from "./tool-contracts.js";
 
 /** 一个参数的模型说明与运行时解析必须一起定义，避免 schema 与校验规则分离。 */
 export interface ToolParameter<T> {

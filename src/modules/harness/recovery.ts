@@ -22,8 +22,10 @@ export function recoveryPolicy(value: Partial<RecoveryPolicy> = {}): RecoveryPol
     if (policy.maxDelayMs < policy.baseDelayMs) throw new TypeError("Recovery maxDelayMs must be >= baseDelayMs");
     return policy;
 }
-export function failureCode(error: unknown): string {
+export function failureCode(error: unknown, seen = new Set<object>()): string {
     if (!error || typeof error !== "object") return "UNKNOWN";
+    if (seen.has(error) || seen.size >= 8) return "UNKNOWN";
+    seen.add(error);
     const value = error as { status?: unknown; statusCode?: unknown; code?: unknown; name?: unknown; cause?: unknown };
     const status = value.status ?? value.statusCode ?? (typeof value.code === "number" ? value.code : undefined);
     if (value.code === -32000) return "CONNECTION_ERROR"; // MCP ConnectionClosed
@@ -32,7 +34,7 @@ export function failureCode(error: unknown): string {
     if (typeof value.code === "string" && /^(ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|EPIPE|EHOSTUNREACH|ENETUNREACH)$/.test(value.code)) return value.code;
     if (value.name === "TimeoutError" || value.name === "APIConnectionTimeoutError") return "TIMEOUT";
     if (value.name === "APIConnectionError") return "CONNECTION_ERROR";
-    return value.cause && value.cause !== error ? failureCode(value.cause) : "UNKNOWN";
+    return value.cause ? failureCode(value.cause, seen) : "UNKNOWN";
 }
 export const retryable = (error: unknown): boolean => /^(HTTP_(408|425|429|500|502|503|504)|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|EPIPE|EHOSTUNREACH|ENETUNREACH|TIMEOUT|CONNECTION_ERROR)$/.test(failureCode(error));
 export async function delay(ms: number, signal?: AbortSignal): Promise<void> {

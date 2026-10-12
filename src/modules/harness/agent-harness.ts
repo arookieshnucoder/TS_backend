@@ -5,11 +5,13 @@ import type { ContextConfig } from "./context/config.js";
 import { TokenBudget } from "./context/tokens.js";
 import { ContextCompressor } from "./context/services.js";
 import { ContextBuilder } from "./context-builder.js";
-import { ToolRegistry, type RegisteredTool } from "./tool-registry.js";
+import { ToolRegistry } from "./tool-registry.js";
+import type { RegisteredTool } from "./tool-contracts.js";
 import { abortable } from "./cancellation.js";
 import { RecoveringModel, recoveryPolicy, type RecoveryPolicy, type NamedAgentModel } from "./recovery.js";
 import { redact } from "../../common/logging/redaction.js";
 import { selectTools } from "./tool-selection.js";
+import { HarnessRuntime, HarnessPolicyError } from "./runtime.js";
 
 export interface HarnessOptions {
     recovery?: Partial<RecoveryPolicy>;
@@ -29,8 +31,8 @@ export interface HarnessRunner {
     run(input: HarnessInput, signal?: AbortSignal): Promise<AgentResult>;
 }
 /**
- * 提供一个用于执行代理工作流的测试工具，封装了上下文构建、工具注册和执行逻辑。
- * 适用于在受控环境中验证代理的行为和性能。
+ * Production runtime: context, execution policy, recovery, cancellation and telemetry.
+ * Workflow owns the decision loop; runtime policy applies to every workflow.
  */
 export class AgentHarness implements HarnessRunner {
     private readonly tokens: TokenBudget;
@@ -65,24 +67,15 @@ export class AgentHarness implements HarnessRunner {
                 const selection = selectTools(input.tools, input.question, this.instructions, this.config, this.tokens);
                 for (const tool of selection.tools) registry.register(tool);
                 if (selection.omitted) event("agent.tools.selected", { included: selection.tools.length, omittedMcpTools: selection.omitted, mcpBudgetTokens: selection.budgetTokens, reason: "context_budget" });
-                const scopedSignal = (operation?: AbortSignal) => signal && operation ? AbortSignal.any([signal, operation]) : signal ?? operation;
-                const result = await this.workflow.run({
-                    tools: registry.definitions(), maxToolSteps: this.config.maxToolSteps, maxCallsPerStep: this.options.maxCallsPerStep ?? 4,
-                    prepare: (rounds, final, operation) => {
-                        const scope = scopedSignal(operation);
-                        return abortable(() => builder.build(rounds, final ? [] : registry.definitions(), final, scope), scope);
-                    },
-                    complete: (messages, tools, operation) => {
-                        const scope = scopedSignal(operation);
-                        return abortable(() => model.turn(messages, tools, scope), scope);
-                    },
-                    execute: (call, operation) => registry.execute(call, scopedSignal(operation)), event,
-                }, signal);
+                const runtime = new HarnessRuntime(model, builder, registry, this.config.maxToolSteps, this.options.maxCallsPerStep ?? 4,
+                    this.config.maxInputTokens, event, signal);
+                const result = await this.workflow.run(runtime, signal);
                 event("agent.completed", { modelTurns: result.modelTurns, toolCalls: result.toolCalls, durationMs: Date.now() - started });
                 return result;
             }, signal);
         } catch (error) {
-            event("agent.failed", { cancelled: signal?.aborted ?? false, durationMs: Date.now() - started });
+            event("agent.failed", { cancelled: signal?.aborted ?? false, durationMs: Date.now() - started,
+                ...(error instanceof HarnessPolicyError ? { code: error.code } : {}) });
             throw error;
         }
     }

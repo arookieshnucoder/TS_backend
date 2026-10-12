@@ -24,9 +24,9 @@ export interface AgentWorkflow {
 export interface AgentRuntime {
     readonly tools: ToolDefinition[];
     readonly maxToolSteps: number;
-    readonly maxCallsPerStep: number;
     prepare(rounds: readonly ToolRound[], final: boolean, signal?: AbortSignal): Promise<AgentMessage[]>;
     complete(messages: AgentMessage[], tools: ToolDefinition[], signal?: AbortSignal): Promise<AgentTurn>;
     execute(call: ToolCall, signal?: AbortSignal): Promise<AgentMessage>;
+    executeBatch(calls: ToolCall[], signal?: AbortSignal): Promise<AgentMessage[]>;
     event(name: string, fields?: Record<string, unknown>): void;
 }

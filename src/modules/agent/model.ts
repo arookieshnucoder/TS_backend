@@ -1,4 +1,5 @@
 import type { AgentMessage, AgentTurn, ToolDefinition } from "./contracts.js";
+export interface LlmConfig { llmApiKey?: string; llmModel: string; llmBaseUrl?: string; llmTimeoutMs: number; }
 
 /** One provider protocol for agent decisions and harness-internal text generation. */
 export interface AgentModel {

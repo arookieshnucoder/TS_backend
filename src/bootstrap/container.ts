@@ -2,7 +2,7 @@ import { errorContainer, type ErrorContainer } from "../common/errors/error-cont
 import { JsonChatSessionRepository } from "../infrastructure/persistence/json/json-chat-session.repository.js";
 import { LangChainChatModel } from "../infrastructure/llm/langchain-chat-model.js";
 import type { ChatSessionRepository } from "../modules/chat/repository/chat-session.repository.js";
-import type { AgentModel } from "../modules/agent/model.js";
+import type { AgentModel, LlmConfig } from "../modules/agent/model.js";
 import { loadConfig, type AppConfig } from "../config/env.js";
 import { logger, type Logger } from "../common/logging/logger.js";
 import type { ChatAgent } from "../modules/chat/service/chat-agent.js";
@@ -41,6 +41,7 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
     const errors = overrides.errors ?? errorContainer;
     const repository = overrides.chatSessionRepository ?? new JsonChatSessionRepository(config.sessionDataDir);
     const log = overrides.logger ?? logger;
+    const provider: LlmConfig = { llmApiKey: config.llmApiKey, llmModel: config.llmModel, llmBaseUrl: config.llmBaseUrl, llmTimeoutMs: config.llmTimeoutMs };
     const mcp = overrides.mcp ?? new McpManager(config.mcp?.configFile ?? join(dirname(config.sessionDataDir), "mcp-servers.json"), log, undefined, config.mcp?.timeoutMs);
     const runs = overrides.runs ?? (config.observability?.enabled ? new RunTraceStore(config.observability.dataDir, log,
         [config.llmApiKey, config.llmFallback?.apiKey, config.mcp?.adminToken], config.observability.maxEvents) : undefined);
@@ -50,11 +51,11 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
         errors,
         chatSessionRepository: repository,
         logger: log,
-        agentHarness: overrides.agentHarness ?? createChatAgent(repository, overrides.agentModel ?? new LangChainChatModel(config, errors),
+        agentHarness: overrides.agentHarness ?? createChatAgent(repository, overrides.agentModel ?? new LangChainChatModel(provider, errors),
             () => config.context.elasticsearchUrl ? new ElasticsearchMemorySearch(new TokenBudget(config.context), config.context) :
                 new LocalMemorySearch(new TokenBudget(config.context)), config.context, log,
             { ...config.harness, fallbackModels: overrides.fallbackModels ?? (!overrides.agentModel && config.llmFallback ? [{ name: config.llmFallback.model,
-                model: new LangChainChatModel({ ...config, llmModel: config.llmFallback.model, llmBaseUrl: config.llmFallback.baseUrl, llmApiKey: config.llmFallback.apiKey }, errors) }] : []),
+                model: new LangChainChatModel({ ...provider, llmModel: config.llmFallback.model, llmBaseUrl: config.llmFallback.baseUrl, llmApiKey: config.llmFallback.apiKey }, errors) }] : []),
                 excludedPaths: [config.sessionDataDir, ...(config.observability ? [config.observability.dataDir] : []), config.mcp?.configFile ?? join(dirname(config.sessionDataDir), "mcp-servers.json")],
                 additionalTools: (_session, signal, context) => mcp.tools(signal, context?.event) })
     };

@@ -35,15 +35,14 @@ export class JsonChatSessionRepository implements ChatSessionRepository {
                 || !Number.isFinite(Date.parse(value.createdAt)) || !Number.isFinite(Date.parse(value.updatedAt))) {
                 throw new Error("Invalid session file");
             }
-            // Migrate the removed state before validating older persisted sessions.
-            if (value.sessionStatus === "generating") value.sessionStatus = "pending";
-            if (value.sessionStatus !== undefined && !isSessionStatus(value.sessionStatus)) throw new Error("Invalid session status");
+            if (!isSessionStatus(value.sessionStatus)) throw new Error("Invalid session status");
+            if (!Object.hasOwn(value, "sessionError")) throw new Error("Missing session error state");
             if (value.sessionError != null && (typeof value.sessionError.code !== "string"
                 || typeof value.sessionError.message !== "string" || !Number.isInteger(value.sessionError.httpStatusCode)
                 || value.sessionError.httpStatusCode < 400 || value.sessionError.httpStatusCode > 599)) {
                 throw new Error("Invalid session error");
             }
-            return { ...value, sessionStatus: value.sessionStatus ?? "finished", sessionError: value.sessionError ?? null, createdAt: new Date(value.createdAt), updatedAt: new Date(value.updatedAt) } as ChatSession;
+            return { ...value, createdAt: new Date(value.createdAt), updatedAt: new Date(value.updatedAt) } as ChatSession;
         }));
         return sessions.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
     }

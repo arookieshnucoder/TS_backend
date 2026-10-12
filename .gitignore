@@ -20,5 +20,7 @@ docs/
 !docs/MCP_GUIDE.md
 !docs/HARNESS_RECOVERY.md
 !docs/AGENT_OBSERVABILITY.md
+!docs/AGENT_EVALUATION_PLAN.md
+!docs/BACKEND_ARCHITECTURE_REVIEW.md
 
 .editorconfig

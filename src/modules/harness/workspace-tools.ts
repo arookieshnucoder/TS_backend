@@ -1,6 +1,6 @@
 import { lstat, open, opendir, realpath } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { ToolAccessError, ToolInputError, type RegisteredTool } from "./tool-registry.js";
+import { ToolAccessError, ToolInputError, type RegisteredTool } from "./tool-contracts.js";
 import { defineReadOnlyTool, integerParameter, stringParameter } from "./define-tool.js";
 
 const blockedDirectories = new Set([".git", ".svn", ".hg", ".ssh", ".aws", ".codex", ".npm-cache", "node_modules", "dist", "build", "coverage", "data"]);

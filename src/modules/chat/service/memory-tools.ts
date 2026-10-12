@@ -1,9 +1,9 @@
 import type { ChatSession } from "../entity/chat-session.entity.js";
 import type { MemorySearch } from "./memory-search.js";
 import type { ContextConfig } from "../../harness/context/config.js";
-import type { ContextCompressor } from "../../harness/context/services.js";
+import type { TextCompressor } from "../../harness/context/contracts.js";
 import { SharedMemoryRetriever } from "./context-services.js";
-import type { RegisteredTool } from "../../harness/tool-registry.js";
+import type { RegisteredTool } from "../../harness/tool-contracts.js";
 import { defineReadOnlyTool, stringParameter } from "../../harness/define-tool.js";
 
 
@@ -17,7 +17,7 @@ import { defineReadOnlyTool, stringParameter } from "../../harness/define-tool.j
  * @returns 已注册的内存工具数组
  */
 export function createMemoryTools(session: ChatSession, candidates: ChatSession[], search: MemorySearch,
-    compression: ContextCompressor, config: ContextConfig): RegisteredTool[] {
+    compression: TextCompressor, config: ContextConfig): RegisteredTool[] {
     // Retrieval is demand-driven. A greeting never triggers indexing or embedding.
     let ready: Promise<void> | undefined;
     const shared = new SharedMemoryRetriever(search, compression, config);
