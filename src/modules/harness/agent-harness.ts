@@ -7,8 +7,11 @@ import { ContextCompressor } from "./context/services.js";
 import { ContextBuilder } from "./context-builder.js";
 import { ToolRegistry, type RegisteredTool } from "./tool-registry.js";
 import { abortable } from "./cancellation.js";
+import { RecoveringModel, recoveryPolicy, type RecoveryPolicy, type NamedAgentModel } from "./recovery.js";
 
 export interface HarnessOptions {
+    recovery?: Partial<RecoveryPolicy>;
+    fallbackModels?: NamedAgentModel[];
     maxCallsPerStep?: number;
     toolTimeoutMs?: number;
     toolOutputTokens?: number;
@@ -28,14 +31,16 @@ export interface HarnessRunner {
  */
 export class AgentHarness implements HarnessRunner {
     private readonly tokens: TokenBudget;
-    private readonly compression: ContextCompressor;
+    private readonly recovery: RecoveryPolicy;
     constructor(private readonly model: AgentModel, private readonly workflow: AgentWorkflow,
         private readonly instructions: AgentInstructions, private readonly config: ContextConfig,
         private readonly logger: Logger, private readonly options: HarnessOptions = {}) {
         if (typeof model?.turn !== "function") throw new TypeError("AgentModel must implement turn; legacy reply providers are unsupported");
         if (typeof workflow?.run !== "function") throw new TypeError("AgentWorkflow must implement run");
         this.tokens = new TokenBudget(config);
-        this.compression = new ContextCompressor(model, this.tokens, config);
+        this.recovery = recoveryPolicy(options.recovery);
+        if (Object.hasOwn(options, "fallbackModels") && !Array.isArray(options.fallbackModels)) throw new TypeError("fallbackModels must be an array");
+        if (options.fallbackModels?.some(m => !m.name.trim() || typeof m.model?.turn !== "function")) throw new TypeError("Invalid fallback model");
     }
     async run(input: HarnessInput, signal?: AbortSignal): Promise<AgentResult> {
         const started = Date.now();
@@ -44,9 +49,11 @@ export class AgentHarness implements HarnessRunner {
         event("agent.started");
         try {
             return await abortable(async () => {
+                const model = new RecoveringModel(this.model, this.options.fallbackModels ?? [], this.recovery, event);
+                const compression = new ContextCompressor(model, this.tokens, this.config);
                 const builder = new ContextBuilder(structuredClone(input.history), input.question, this.config,
-                    this.tokens, this.compression, event, this.instructions);
-                const registry = new ToolRegistry(this.tokens, this.options.toolOutputTokens ?? 2048, this.options.toolTimeoutMs ?? 15000, event);
+                    this.tokens, compression, event, this.instructions);
+                const registry = new ToolRegistry(this.tokens, this.options.toolOutputTokens ?? 2048, this.options.toolTimeoutMs ?? 15000, event, this.recovery);
                 for (const tool of input.tools) registry.register(tool);
                 const scopedSignal = (operation?: AbortSignal) => signal && operation ? AbortSignal.any([signal, operation]) : signal ?? operation;
                 const result = await this.workflow.run({
@@ -57,7 +64,7 @@ export class AgentHarness implements HarnessRunner {
                     },
                     complete: (messages, tools, operation) => {
                         const scope = scopedSignal(operation);
-                        return abortable(() => this.model.turn(messages, tools, scope), scope);
+                        return abortable(() => model.turn(messages, tools, scope), scope);
                     },
                     execute: (call, operation) => registry.execute(call, scopedSignal(operation)), event,
                 }, signal);

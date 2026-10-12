@@ -75,7 +75,9 @@ test("JSON HTTP sessions survive restart; real LangChain adapter sends managed c
       const body = await failed.text();
       assert.match(body,new RegExp("HTTP " + status));
       assert.doesNotMatch(body,/secret-test-key/);
-      assert.equal(calls.length,beforeCalls+1,"no retries or alternate model calls");
+      assert.equal(calls.length,beforeCalls+(status === 401 ? 1 : 3),"permanent errors stop; transient errors exhaust the configured retries");
+      assert.ok(calls.slice(beforeCalls).every(call => call.body.model === "deepseek-flash"), "no unconfigured alternate model calls");
+      assert.ok(calls.slice(beforeCalls).every(call => JSON.stringify(call.body.messages) === JSON.stringify(calls[beforeCalls].body.messages)), "retry keeps the same context");
     }
     upstreamStatus = 200; empty = true;
     assert.equal((await post(`${base}/${created.id}/messages`,{content:"空回复"})).status,400);

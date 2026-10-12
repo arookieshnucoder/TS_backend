@@ -121,6 +121,7 @@ export class McpManager {
             const connection = await this.connector(config, AbortSignal.timeout(this.timeoutMs));
             if (this.closed || this.configs.find(c => c.id === config.id) !== config) { await connection.client.close(); throw new ToolAccessError("MCP configuration changed"); }
             this.connections.set(config.id, connection);
+            this.views.set(config.id, { ...this.view(config), status: "connected", error: undefined });
             connection.client.onclose = () => {
                 if (this.connections.get(config.id) === connection) {
                     this.connections.delete(config.id);
@@ -153,7 +154,8 @@ export class McpManager {
                 return adaptMcpTool(config.id, tool, async (args, operation) => {
                     const current = this.configs.find(c => c.id === config.id);
                     if (this.closed || current !== config || !current.enabled || (tool.annotations?.readOnlyHint !== true && !current.allowMutations)) throw new ToolAccessError("MCP is disabled or tool access revoked");
-                    return CallToolResultSchema.parse(await connection.client.callTool({ name: tool.name, arguments: args }, CallToolResultSchema, { signal: operation, timeout: this.timeoutMs }));
+                    const live = await abortable(() => this.connection(config), operation);
+                    return CallToolResultSchema.parse(await live.client.callTool({ name: tool.name, arguments: args }, CallToolResultSchema, { signal: operation, timeout: this.timeoutMs }));
                 });
             });
             if (this.configs.find(c => c.id === config.id) !== config) throw new ToolAccessError("MCP configuration changed");

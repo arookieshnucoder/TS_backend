@@ -1,6 +1,7 @@
 import type { AgentMessage, ToolCall, ToolDefinition } from "../agent/contracts.js";
 import type { TokenBudget } from "./context/tokens.js";
 import { abortable } from "./cancellation.js";
+import { recoveryPolicy, retry, type RecoveryPolicy } from "./recovery.js";
 
 export class ToolInputError extends Error { }
 export class ToolAccessError extends Error { }
@@ -22,7 +23,8 @@ export interface RegisteredTool {
 export class ToolRegistry {
     private readonly entries = new Map<string, RegisteredTool>();
     constructor(private readonly tokens: TokenBudget, private readonly outputTokens: number, private readonly timeoutMs: number,
-        private readonly event: (name: string, fields: Record<string, unknown>) => void) { }
+        private readonly event: (name: string, fields: Record<string, unknown>) => void,
+        private readonly recovery: RecoveryPolicy = recoveryPolicy()) { }
     register(tool: RegisteredTool): this {
         if (typeof tool.readonly !== "boolean" || this.entries.has(tool.definition.name)) throw new Error("Invalid or duplicate tool");
         this.entries.set(tool.definition.name, tool);
@@ -45,7 +47,9 @@ export class ToolRegistry {
             tool.validate(call.arguments);
             const timeout = AbortSignal.timeout(this.timeoutMs);
             const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
-            text = await abortable(() => tool.execute(call.arguments, combined), combined);
+            text = await retry(() => abortable(() => tool.execute(structuredClone(call.arguments), combined), combined),
+                tool.idempotent === true ? this.recovery.toolRetries : 0, this.recovery, combined, this.event,
+                { operation: "tool", tool: call.name, callId: call.id });
         } catch (error) {
             signal?.throwIfAborted();
             status = "error";

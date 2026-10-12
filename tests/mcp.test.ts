@@ -22,6 +22,7 @@ import { createDependencies } from "../src/bootstrap/container.js";
 import { createChatAgent } from "../src/bootstrap/chat-agent.js";
 import { InMemoryChatSessionRepository } from "../src/infrastructure/persistence/memory/in-memory-chat-session.repository.js";
 import { defineReadOnlyTool } from "../src/modules/harness/define-tool.js";
+import { recoveryPolicy } from "../src/modules/harness/recovery.js";
 
 const logger = { info() {}, error() {} };
 const fixture = fileURLToPath(new URL("./fixtures/mcp-server.mjs", import.meta.url));
@@ -32,6 +33,20 @@ async function manager() {
     return new McpManager(join(dir, "mcp.json"), logger);
 }
 const local = (id: string, enabled = true) => ({ id, transport: "stdio", command: process.execPath, args: [fixture], enabled });
+
+test("a read-only MCP tool reconnects after its process drops once without replaying successful calls", async () => {
+    const mcp = await manager();
+    const dir = await mkdtemp(join(tmpdir(), "rag-mcp-drop-"));
+    try {
+        await mcp.import({ ...local("reconnect"), args: [fixture, "drop-once", join(dir, "marker")] });
+        const tools = await mcp.tools();
+        const tool = tools.find(t => t.source?.toolName === "lookup")!;
+        const registry = new ToolRegistry(tokens, 256, 10000, () => {}, recoveryPolicy({ baseDelayMs: 0, maxDelayMs: 0 }));
+        registry.register(tool);
+        assert.match((await registry.execute({ id: "reconnect", name: tool.definition.name, arguments: { query: "after-drop" } })).content, /evidence:after-drop/);
+        assert.equal((await mcp.list())[0]!.status, "connected");
+    } finally { await mcp.close(); }
+});
 
 test("real stdio MCP paginates, validates nested/optional schema, isolates names and preserves custom tools", async () => {
     const mcp = await manager();

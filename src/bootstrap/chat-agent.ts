@@ -36,7 +36,7 @@ export interface ChatAgentOptions extends HarnessOptions {
  */
 export function createChatAgent(repository: ChatSessionRepository, model: AgentModel,
     searchFactory: () => MemorySearch, config: ContextConfig, logger: Logger, options: ChatAgentOptions = {}) {
-    const allowed = new Set(["workspaceRoot", "excludedPaths", "maxCallsPerStep", "toolTimeoutMs", "toolOutputTokens", "profile", "tools", "title", "additionalTools"]);
+    const allowed = new Set(["workspaceRoot", "excludedPaths", "maxCallsPerStep", "toolTimeoutMs", "toolOutputTokens", "profile", "tools", "title", "additionalTools", "recovery", "fallbackModels"]);
     for (const key of Object.keys(options)) {
         if (!allowed.has(key)) throw new TypeError(`Unsupported chat agent option: ${key}`);
     }
