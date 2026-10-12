@@ -9,24 +9,24 @@ import { createHealthModule } from "./modules/health/health.module.js";
 import { createChatModule } from "./modules/chat/chat.module.js";
 
 export function createApp(
-  config: AppConfig = loadConfig(),
-  dependencies: AppDependencies = createDependencies({}, config)
+    config: AppConfig = loadConfig(),
+    dependencies: AppDependencies = createDependencies({}, config)
 ) {
-  const app = express();
-  // header 不带 x-powered-by
-  app.disable("x-powered-by");
-  app.use(requestContext(dependencies.logger));
-  const chatService = new ChatSessionService(dependencies.chatSessionRepository, dependencies.agentHarness, dependencies.errors,
-    config.llmTimeoutMs);
-  app.use(cors({ origin: config.frontendOrigin, exposedHeaders: ["X-Request-Id"] }));
-  app.use(express.json({ limit: "1mb" }));
-  app.use("/api/health", createHealthModule());
-  // 返回给前端的聊天接口
-  app.use("/api/chat", createChatModule(chatService, dependencies.errors));
-  app.use(notFoundHandler);
-  app.use(errorHandler(dependencies.logger));
-  // TODO: 可以在这里添加更多的中间件，例如请求日志、身份验证等。
-  return app;
+    const app = express();
+    // header 不带 x-powered-by
+    app.disable("x-powered-by");
+    app.use(requestContext(dependencies.logger));
+    const chatService = new ChatSessionService(dependencies.chatSessionRepository, dependencies.agentHarness, dependencies.errors,
+        config.llmTimeoutMs);
+    app.use(cors({ origin: config.frontendOrigin, exposedHeaders: ["X-Request-Id"] }));
+    app.use(express.json({ limit: "1mb" }));
+    app.use("/api/health", createHealthModule());
+    // 返回给前端的聊天接口
+    app.use("/api/chat", createChatModule(chatService, dependencies.errors));
+    app.use(notFoundHandler);
+    app.use(errorHandler(dependencies.logger));
+    // TODO: 可以在这里添加更多的中间件，例如请求日志、身份验证等。
+    return app;
 }
 
 export default createApp;
