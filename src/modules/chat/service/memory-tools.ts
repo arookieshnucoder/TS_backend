@@ -3,7 +3,8 @@ import type { MemorySearch } from "./memory-search.js";
 import type { ContextConfig } from "../../harness/context/config.js";
 import type { ContextCompressor } from "../../harness/context/services.js";
 import { SharedMemoryRetriever } from "./context-services.js";
-import { stringField, validateFields, type RegisteredTool } from "../../harness/tool-registry.js";
+import type { RegisteredTool } from "../../harness/tool-registry.js";
+import { defineReadOnlyTool, stringParameter } from "../../harness/define-tool.js";
 
 
 /**
@@ -20,23 +21,19 @@ export function createMemoryTools(session: ChatSession, candidates: ChatSession[
     // Retrieval is demand-driven. A greeting never triggers indexing or embedding.
     let ready: Promise<void> | undefined;
     const shared = new SharedMemoryRetriever(search, compression, config);
-    // 返回的上下文记忆的格式要有，readonly，definition，validate，execute 等字段，确保工具注册的一致性。
-    // TODO: 后面把他做成一个通用的内存工具注册函数
-    return ["search_session_memory", "search_shared_memory"].map(name => ({
-        readonly: true,
-        definition: {
-            name, description: name === "search_session_memory" ? "Search earlier messages in this session." : "Search the latest ten other sessions for relevant memories with source session IDs.",
-            parameters: { type: "object", properties: { query: { type: "string", minLength: 1, maxLength: 2000 } }, required: ["query"], additionalProperties: false }
-        },
-        validate(input) { validateFields(input, ["query"]); stringField(input, "query", 2000); },
-        async execute(input, signal) {
+    // 参数声明统一生成 schema 和校验；execute 中的 query 自动推导为 string。
+    return ["search_session_memory", "search_shared_memory"].map(name => defineReadOnlyTool({
+        name,
+        description: name === "search_session_memory" ? "Search earlier messages in this session." : "Search the latest ten other sessions for relevant memories with source session IDs.",
+        parameters: { query: stringParameter(2000) },
+        async execute({ query }, signal) {
             signal?.throwIfAborted();
             // Reset after failure so a later, refined call may recover from transient retrieval errors.
             ready ??= search.sync([session, ...candidates], signal).catch(error => { ready = undefined; throw error; });
             await ready;
             signal?.throwIfAborted();
-            if (name === "search_shared_memory") return shared.execute({ sessions: candidates, query: input.query as string }, signal);
-            const hits = await search.search(input.query as string, [session.id], 8, signal);
+            if (name === "search_shared_memory") return shared.execute({ sessions: candidates, query }, signal);
+            const hits = await search.search(query, [session.id], 8, signal);
             return hits.map(hit => `[session=${hit.sessionId} chunk=${hit.id}]\n${hit.text}`).join("\n");
         },
     }));

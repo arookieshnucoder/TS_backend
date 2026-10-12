@@ -4,6 +4,7 @@ import { createDependencies, type DependencyOverrides } from "../src/bootstrap/c
 import { createChatAgent, type ChatAgentOptions } from "../src/bootstrap/chat-agent.js";
 import { loadConfig } from "../src/config/env.js";
 import { AgentHarness } from "../src/modules/harness/agent-harness.js";
+import { defineReadOnlyTool } from "../src/modules/harness/define-tool.js";
 import type { AgentModel } from "../src/modules/agent/model.js";
 import type { AgentRuntime, AgentWorkflow } from "../src/modules/agent/contracts.js";
 import type { ChatAgent } from "../src/modules/chat/service/chat-agent.js";
@@ -42,10 +43,10 @@ test("generic harness runs an injected workflow with custom instructions and too
   } };
   const model: AgentModel = { async turn() { modelCalls++; return { content: "custom answer", toolCalls: [] }; } };
   const harness = new AgentHarness(model, workflow, instructions, config.context, logger);
-  const result = await harness.run({ history: [], question: "question", metadata: {}, tools: [{
-    definition: { name: "custom_lookup", description: "Custom lookup", parameters: {} }, readonly: true,
-    validate() {}, async execute() { toolCalls++; return "verified evidence"; },
-  }] });
+  const result = await harness.run({ history: [], question: "question", metadata: {}, tools: [defineReadOnlyTool({
+    name: "custom_lookup", description: "Custom lookup", parameters: {},
+    async execute() { toolCalls++; return "verified evidence"; },
+  })] });
   assert.deepEqual(result, { content: "custom answer", modelTurns: 1, toolCalls: 1 });
   assert.equal(modelCalls, 1); assert.equal(toolCalls, 1);
 });
@@ -76,10 +77,10 @@ test("runtime methods retain cancellation even when a custom workflow omits its 
     runtime = value; abort.abort();
     return { content: "late answer", modelTurns: 0, toolCalls: 0 };
   } }, instructions, config.context, logger);
-  await assert.rejects(harness.run({ history: [], question: "question", metadata: {}, tools: [{
-    definition: { name: "lookup", description: "lookup", parameters: {} }, readonly: true,
-    validate() {}, async execute() { executions++; return "unused"; },
-  }] }, abort.signal), { name: "AbortError" });
+  await assert.rejects(harness.run({ history: [], question: "question", metadata: {}, tools: [defineReadOnlyTool({
+    name: "lookup", description: "lookup", parameters: {},
+    async execute() { executions++; return "unused"; },
+  })] }, abort.signal), { name: "AbortError" });
   await assert.rejects(runtime.prepare([], false), { name: "AbortError" });
   await assert.rejects(runtime.complete([], []), { name: "AbortError" });
   await assert.rejects(runtime.execute({ id: "late", name: "lookup", arguments: {} }), { name: "AbortError" });

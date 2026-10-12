@@ -4,6 +4,7 @@ import { abortable } from "./cancellation.js";
 
 export class ToolInputError extends Error { }
 export class ToolAccessError extends Error { }
+/** Harness 内部执行契约。业务工具统一通过 defineReadOnlyTool() 构建。 */
 export interface RegisteredTool {
     definition: ToolDefinition;
     readonly: true;
@@ -56,27 +57,4 @@ export class ToolRegistry {
         this.event("agent.tool", { tool: call.name, callId: call.id, status, truncated, durationMs: Date.now() - started, resultTokens: this.tokens.count(text) });
         return { role: "tool", toolCallId: call.id, content: text || "No matching evidence found." };
     }
-}
-
-/**
- * 验证输入对象的字段是否在允许的字段列表中。
- * @param input 输入对象。
- * @param allowed 允许的字段列表。
- * @throws ToolInputError 如果输入对象包含不允许的字段。
- */
-export function validateFields(input: Record<string, unknown>, allowed: string[]) {
-    if (Object.keys(input).some(key => !allowed.includes(key))) throw new ToolInputError(`Allowed fields: ${allowed.join(", ")}`);
-}
-/**
- * 验证输入对象的指定字段是否为非空字符串且不超过最大长度。
- * @param input 输入对象。
- * @param key 字段名。
- * @param max 最大长度。
- * @param optional 是否为可选字段，默认为 false。
- * @throws ToolInputError 如果字段不符合要求。
- */
-export function stringField(input: Record<string, unknown>, key: string, max: number, optional = false): void {
-    if (optional && input[key] === undefined) return;
-    if (typeof input[key] !== "string" || !(input[key] as string).trim() || (input[key] as string).length > max)
-        throw new ToolInputError(`${key} must be a non-empty string of at most ${max} characters`);
 }

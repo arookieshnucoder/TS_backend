@@ -1,6 +1,7 @@
 import { lstat, open, opendir, realpath } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { stringField, ToolAccessError, ToolInputError, validateFields, type RegisteredTool } from "./tool-registry.js";
+import { ToolAccessError, ToolInputError, type RegisteredTool } from "./tool-registry.js";
+import { defineReadOnlyTool, integerParameter, stringParameter } from "./define-tool.js";
 
 const blockedDirectories = new Set([".git", ".svn", ".hg", ".ssh", ".aws", ".codex", ".npm-cache", "node_modules", "dist", "build", "coverage", "data"]);
 const extensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".json", ".md", ".txt", ".css", ".scss", ".html", ".yml", ".yaml", ".py", ".go", ".rs", ".java", ".c", ".h", ".cpp", ".cs", ".toml", ".xml", ".sql"]);
@@ -134,36 +135,33 @@ export class WorkspaceReader {
  */
 export function createWorkspaceTools(root: string, excludedPaths: string[] = []): RegisteredTool[] {
     const reader = new WorkspaceReader(root, excludedPaths);
-    const pathProperty = { type: "string", minLength: 1, maxLength: 500, description: "Workspace-relative path; use . for the root." };
-    const definition = (name: string, description: string, properties: Record<string, unknown>, required: string[]) =>
-        ({ name, description, parameters: { type: "object", properties, required, additionalProperties: false } });
+    const path = stringParameter(500, "Workspace-relative path; use . for the root.");
 
     return [
-        {
-            readonly: true,
-            definition: definition("list_directory", "List accessible source files and directories (up to 200 entries).", { path: pathProperty }, ["path"]),
-            validate(input) { validateFields(input, ["path"]); stringField(input, "path", 500); },
-            execute: (input, signal) => reader.list(input.path as string, signal)
-        },
+        defineReadOnlyTool({
+            name: "list_directory",
+            description: "List accessible source files and directories (up to 200 entries).",
+            parameters: { path },
+            execute: ({ path }, signal) => reader.list(path, signal)
+        }),
 
-        {
-            readonly: true,
-            definition: definition("read_file", "Read up to 200 lines from a text source file; returns line numbers for citations.",
-                { path: pathProperty, startLine: { type: "integer", minimum: 1 }, endLine: { type: "integer", minimum: 1 } }, ["path", "startLine", "endLine"]),
-            validate(input) {
-                validateFields(input, ["path", "startLine", "endLine"]); stringField(input, "path", 500);
-                const start = input.startLine, end = input.endLine;
-                if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || (start as number) < 1 || (end as number) < (start as number) || (end as number) - (start as number) >= 200)
+        defineReadOnlyTool({
+            name: "read_file",
+            description: "Read up to 200 lines from a text source file; returns line numbers for citations.",
+            parameters: { path, startLine: integerParameter(1), endLine: integerParameter(1) },
+            // 单字段类型和边界由参数声明校验，这里只保留行区间之间的业务约束。
+            validate({ startLine, endLine }) {
+                if (endLine < startLine || endLine - startLine >= 200)
                     throw new ToolInputError("startLine/endLine must specify 1..200 lines, starting at line 1 or later");
-            }, execute: (input, signal) => reader.read(input.path as string, input.startLine as number, input.endLine as number, signal)
-        },
+            },
+            execute: ({ path, startLine, endLine }, signal) => reader.read(path, startLine, endLine, signal)
+        }),
 
-        {
-            readonly: true,
-            definition: definition("search_workspace", "Search source text using a case-insensitive literal query; returns paths and line numbers. Bounded scan; narrow path if truncated.",
-                { query: { type: "string", minLength: 1, maxLength: 500 }, path: pathProperty }, ["query", "path"]),
-            validate(input) { validateFields(input, ["query", "path"]); stringField(input, "query", 500); stringField(input, "path", 500); },
-            execute: (input, signal) => reader.search(input.path as string, input.query as string, signal)
-        },
+        defineReadOnlyTool({
+            name: "search_workspace",
+            description: "Search source text using a case-insensitive literal query; returns paths and line numbers. Bounded scan; narrow path if truncated.",
+            parameters: { query: stringParameter(500), path },
+            execute: ({ path, query }, signal) => reader.search(path, query, signal)
+        }),
     ];
 }

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createChatAgent } from "../src/bootstrap/chat-agent.js";
 import { ToolRegistry } from "../src/modules/harness/tool-registry.js";
+import { defineReadOnlyTool } from "../src/modules/harness/define-tool.js";
 import { createWorkspaceTools } from "../src/modules/harness/workspace-tools.js";
 import { ContextBuilder } from "../src/modules/harness/context-builder.js";
 import { ASK_INSTRUCTIONS, FINAL_INSTRUCTIONS } from "../src/modules/agent/prompt.js";
@@ -68,7 +69,7 @@ test("registry bounds output, sanitizes execution errors, times out and never sw
     ["large", async () => "内容😀".repeat(1000)],
     ["fail", async () => { throw new Error("Bearer secret-credential"); }],
     ["hang", () => new Promise<string>(() => {})],
-  ] as const) registry.register({ readonly: true, definition: { name, description: name, parameters: {} }, validate() {}, execute });
+  ] as const) registry.register(defineReadOnlyTool({ name, description: name, parameters: {}, execute }));
   const large = await registry.execute(call("1", "large", {}));
   assert.ok(tokens.count(large.content) <= 128); assert.match(large.content, /truncated/); assert.doesNotMatch(large.content, /�/);
   const error = await registry.execute(call("2", "fail", {}));
