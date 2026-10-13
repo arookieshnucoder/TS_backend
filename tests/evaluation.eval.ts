@@ -15,6 +15,7 @@ import { html, writeReport } from "../src/modules/evaluation/report.js";
 import { loadConfig } from "../src/config/env.js";
 import type { EvalDataset } from "../src/modules/evaluation/contracts.js";
 
+// Manual evaluation-platform tests. Local evals/ assets are intentionally outside backend CI.
 const fixtureHashes = { datasetHash: "test-dataset", graderHash: "test-grader", systemHash: "test-system" };
 const config = loadConfig({ NODE_ENV: "test", AGENT_WORKSPACE_ENABLED: "false", AGENT_TRACE_ENABLED: "false" });
 async function dataset() { return parseDataset(JSON.parse(await readFile("evals/agent-v1.json", "utf8"))); }

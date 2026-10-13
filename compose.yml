@@ -31,6 +31,7 @@ services:
       PORT: "8080"
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       SESSION_DATA_DIR: /app/data/sessions
+      MATH_AGENT_VARIANT: general
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
       LLM_MODEL: ${LLM_MODEL:-deepseek-flash}

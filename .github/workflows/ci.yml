@@ -19,12 +19,11 @@ jobs:
           cache: npm
       - name: 安装依赖
         run: npm ci
-      - name: 测试
+      - name: 后端回归测试（不含 eval）
         run: npm test
       - name: 构建
         run: npm run build
-      - name: Agent harness 控制评测
-        run: npm run eval -- --repeats 2 --min-pass-rate 1 --out data/evaluations/ci-${{ github.run_id }}-${{ github.run_attempt }}
-      # 暂停日常 CI 的 Docker 镜像构建；仍保留测试、应用构建和控制评测。
+      # eval 是手动运行的 Agent/Harness 评测平台，数据集和真实模型凭据不属于日常 CI。
+      # 暂停日常 CI 的 Docker 镜像构建；仍保留后端回归测试、应用构建和 Compose 配置校验。
       - name: 验证完整的堆栈配置
         run: docker compose --env-file deploy/.env.example -f compose.yml config --quiet

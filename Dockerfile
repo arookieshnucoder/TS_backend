@@ -13,7 +13,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts
 
 FROM node:24-alpine AS runtime
-ENV NODE_ENV=production PORT=8080 SESSION_DATA_DIR=/app/data/sessions MCP_CONFIG_FILE=/app/runtime/mcp-servers.json AGENT_RUN_DATA_DIR=/app/runtime/runs
+ENV NODE_ENV=production MATH_AGENT_VARIANT=general PORT=8080 SESSION_DATA_DIR=/app/data/sessions MCP_CONFIG_FILE=/app/runtime/mcp-servers.json AGENT_RUN_DATA_DIR=/app/runtime/runs
 WORKDIR /app
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist

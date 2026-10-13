@@ -13,6 +13,7 @@
     "eval": "tsx scripts/evaluate-agent.ts",
     "eval:live": "tsx scripts/evaluate-agent.ts --mode live",
     "test": "tsx --test tests/*.test.ts",
+    "test:eval": "tsx --test tests/*.eval.ts",
     "smoke:agent": "tsx scripts/smoke-agent.ts",
     "dev": "tsx watch src/server.ts",
     "typecheck": "tsc --noEmit",

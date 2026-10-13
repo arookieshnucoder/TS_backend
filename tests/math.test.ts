@@ -8,27 +8,18 @@ import type { AddressInfo } from "node:net";
 import express from "express";
 import { createMathModule } from "../src/modules/math/math.module.js";
 import { normalizeMath } from "../src/modules/math/normalize.js";
-import { hash, loadCorpus, validateCorpus } from "../src/modules/math/corpus.js";
-import { MathRag, buildIndex, validateIndex, corpusDigest, type VectorIndex } from "../src/modules/math/rag.js";
+import { loadCorpus, validateCorpus } from "../src/modules/math/corpus.js";
+import { MathRag, buildIndex, validateIndex, type VectorIndex } from "../src/modules/math/rag.js";
 import { MathSubmissions } from "../src/modules/math/submissions.js";
 import { createMathProfile } from "../src/modules/math/profile.js";
-import type { Embeddings, MathQuestion, MathCorpus } from "../src/modules/math/contracts.js";
+import type { MathCorpus } from "../src/modules/math/contracts.js";
 import { MATH_VARIANTS } from "../src/modules/math/contracts.js";
-import { extractMathAnswer, evaluateMath, permuteQuestion } from "../src/modules/evaluation/math-runner.js";
 import { loadConfig } from "../src/config/env.js";
 import { errorHandler } from "../src/common/http/error-handler.js";
 import { redact } from "../src/common/logging/redaction.js";
 import { mathEmbeddingConfig } from '../src/bootstrap/math-chat-agent.js';
+import { examples, fixture, question } from "./math-fixtures.js";
 const logger = { info() {}, error() {} };
-const question = (id: string, text: string, topic = "algebra"): MathQuestion => ({ id, question: text, topic, options: ["1", "2", "3", "4"], answer: "B",
-    source: { url: "https://example.com/public-math", row: 1, sha256: hash(text), dataset: "test-only" }, solution: "这是测试解析，使用代入原方程的方法进行核验。" });
-const examples = [question("quadratic", "解一元二次方程x^2-3x+2=0", "quadratic"), question("statistics", "计算数据的众数和中位数", "statistics"), question("circle", "求圆的面积", "geometry")];
-function fixture() {
-    let calls = 0;
-    const embeddings: Embeddings = { model: "test-only", dimensions: 3, async embed(texts, signal) { calls++; signal?.throwIfAborted(); return texts.map(text => /中位数|众数/.test(text) ? [0, 1, 0] : /圆/.test(text) ? [0, 0, 1] : [1, 0, 0]); } };
-    const index: VectorIndex = { version: 1, corpusHash: corpusDigest(examples), model: embeddings.model, dimensions: 3, ids: examples.map(q => q.id), vectors: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] };
-    return { embeddings, index, rag: new MathRag(examples, index, embeddings), calls: () => calls };
-}
 test("math normalization keeps distinctions needed for solving and exact-match isolation", () => {
     assert.equal(normalizeMath("﹣３ ≤ x\n $\\dfrac{1}{2}$"), "-3 ≤ x \\frac{1}{2}");
     assert.notEqual(normalizeMath("x>1"), normalizeMath("x≥1"));
@@ -40,11 +31,13 @@ test('embedding credentials stay on their configured endpoint unless an explicit
     assert.throws(()=>mathEmbeddingConfig(config),/EMBEDDING_API_KEY/);
     config.context.embeddingApiKey='test-embedding-key';assert.equal(mathEmbeddingConfig(config).llmApiKey,'test-embedding-key');
 });
-test("corpus is 100/12/30, source attributed, and excludes corrupted statements", async () => {
-    const c = await loadCorpus("evals/math/corpus.json");
-    assert.deepEqual([c.knowledge.length, c.development.length, c.test.length], [100, 12, 30]);
-    assert.equal(c.excluded.length, 6);
-    assert.ok(c.knowledge.every(q => q.source.dataset.includes("MathBench")));
+test("corpus loading validates self-contained data and rejects split leakage and invalid answers", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "math-corpus-")), path = join(dir, "corpus.json");
+    const input: MathCorpus = { version: 1, id: "test-fixture", knowledge: examples,
+        development: [question("dev", "测试题：求x+1=3")], test: [question("test", "最终题：求x-1=1")], excluded: [] };
+    await writeFile(path, JSON.stringify(input));
+    const c = await loadCorpus(path);
+    assert.deepEqual(c, input);
     const copy = structuredClone(c); copy.test[0]!.question = copy.knowledge[0]!.question;
     assert.throws(() => validateCorpus(copy), /leakage/);
     const malformed = structuredClone(c); malformed.knowledge[0]!.answer = "E";
@@ -100,18 +93,7 @@ test("complex math runs an independent second review and returns the reviewed an
     assert.equal(result.modelTurns,2); assert.equal(turns,2); assert.match(result.content,/答案：B/);
     assert.doesNotMatch(result.content,/草稿/);
 });
-test("grader reads the explicit final conclusion and rejects conflicting answers and letters in reasoning", () => {
-    assert.equal(extractMathAnswer("A选项不对\n答案：C"), "C");
-    assert.equal(extractMathAnswer("**答案：** B。"), "B");
-    assert.equal(extractMathAnswer("参考例题答案A，所以选择B"), null);
-    assert.equal(extractMathAnswer("答案：A\n答案：B"), null);
-    assert.equal(extractMathAnswer("答案：BCD"), null);
-});
-test("choice rotation changes letters while preserving the correct option content", () => {
-    for (const repeat of [1, 2, 3, 4, 5]) { const q = examples[0]!, p = permuteQuestion(q, repeat);
-        assert.equal(p.options["ABCD".indexOf(p.answer)], q.options["ABCD".indexOf(q.answer)]); }
-});
-test("evaluation redaction preserves complete long solutions and legitimate Basic Concepts topics", () => {
+test("redaction preserves complete long solutions and legitimate Basic Concepts topics", () => {
     assert.equal(redact("Basic Concepts of Geometry"), "Basic Concepts of Geometry");
     assert.equal(redact("Basic dXNlcjpwYXNz"), "Basic [REDACTED]");
     const answer = "推导".repeat(700) + "\n答案：C";
@@ -127,17 +109,6 @@ test("new question text and its vector persist separately; solved model answers 
     const record = JSON.parse(await readFile(path, "utf8"));
     assert.equal(record.status, "solved_unverified"); assert.equal(record.trusted, false); assert.equal(record.vector.length, 3);
     assert.equal(f.rag.questions.length, 3);
-});
-test("math evaluation reuses standard JSON/HTML reports and rejects reusing an output directory", async () => {
-    const f = fixture(), dir = await mkdtemp(join(tmpdir(), "math-eval-")), path = join(dir, "corpus.json");
-    const c: MathCorpus = { version: 1, id: "test-fixture", knowledge: examples, development: [question("dev", "测试题：求x+1=3")], test: [question("test", "最终题：求x-1=1")], excluded: [] };
-    await writeFile(path, JSON.stringify(c));
-    const options = { out: join(dir, "run"), split: "development" as const, variants: MATH_VARIANTS, repeats: 1, seed: 1, timeoutMs: 1000, concurrency: 1, thinking: "disabled" as const,
-        corpusPath: path, rag: f.rag, modelFactory: () => ({ async turn() { return { content: "推导得到2。\n答案：B", toolCalls: [] }; } }) };
-    const result = await evaluateMath(options);
-    assert.equal(result.rows.length, 4); assert.ok(result.rows.every(r => r.correct === 1));
-    assert.match(await readFile(join(options.out, "combined", "report.html"), "utf8"), /初中数学/);
-    await assert.rejects(() => evaluateMath(options), /Output already exists/);
 });
 test("OCR endpoint reserves explicit 501; configured provider passes typed bytes and flags low confidence", async () => {
     for (const configured of [false, true]) {
