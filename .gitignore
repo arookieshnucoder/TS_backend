@@ -5,25 +5,12 @@ node_modules/
 
 dist/
 
-docs/*
-!docs/context-harness.md
-!docs/ask-agent-todo.md
-
 data/
 
-!docs/deployment.md
 deploy/.env
 
+evals/
+
 docs/
-!docs/
-!docs/MCP_HARNESS_PLAN.md
-!docs/MCP_GUIDE.md
-!docs/HARNESS_RECOVERY.md
-!docs/AGENT_OBSERVABILITY.md
-!docs/AGENT_EVALUATION_PLAN.md
-!docs/BACKEND_ARCHITECTURE_REVIEW.md
-!docs/AGENT_EVALUATION.md
-!docs/AGENT_EVALUATION_BASELINE.md
-!docs/GLM47_EVALUATION.md
 
 .editorconfig

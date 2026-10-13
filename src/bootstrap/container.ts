@@ -12,9 +12,13 @@ import { LocalMemorySearch, ElasticsearchMemorySearch } from "../infrastructure/
 import { McpManager } from "../modules/mcp/mcp-manager.js";
 import type { NamedAgentModel } from "../modules/harness/recovery.js";
 import { RunTraceStore } from "../modules/observability/run-trace.js";
+import { createMathChatAgent } from "./math-chat-agent.js";
+import { GlmModel } from "../infrastructure/llm/glm-model.js";
+import type { MathOcrProvider } from "../modules/math/contracts.js";
 
 
 export interface AppDependencies {
+    mathOcr?: MathOcrProvider;
     runs?: RunTraceStore;
     mcp: McpManager;
     errors: ErrorContainer;
@@ -27,7 +31,7 @@ export interface AppDependencies {
 export type DependencyOverrides = Partial<AppDependencies> & { agentModel?: AgentModel; fallbackModels?: NamedAgentModel[] };
 
 export function createDependencies(overrides: DependencyOverrides = {}, config: AppConfig = loadConfig()): AppDependencies {
-    const allowed = new Set(["errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "mcp", "fallbackModels", "runs"]);
+    const allowed = new Set(["errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "mcp", "fallbackModels", "runs", "mathOcr"]);
     for (const key of Object.keys(overrides)) {
         if (!allowed.has(key)) throw new TypeError(`Unsupported dependency override: ${key}`);
         if (overrides[key as keyof DependencyOverrides] == null) throw new TypeError(`Dependency override ${key} must not be null or undefined`);
@@ -45,13 +49,13 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
         [config.llmApiKey, config.llmFallback?.apiKey, config.mcp.adminToken], config.observability.maxEvents) : undefined);
     let agentHarness = overrides.agentHarness;
     if (!agentHarness) {
-        const model = overrides.agentModel ?? new LangChainChatModel(provider, errors);
+        const model = overrides.agentModel ?? (config.llmModel === "glm-4.7" ? new GlmModel(provider, config.math.thinking) : new LangChainChatModel(provider, errors));
         let fallbackModels = overrides.fallbackModels ?? [];
         if (overrides.fallbackModels === undefined && overrides.agentModel === undefined && config.llmFallback) {
             fallbackModels = [{ name: config.llmFallback.model, model: new LangChainChatModel({ ...provider,
                 llmModel: config.llmFallback.model, llmBaseUrl: config.llmFallback.baseUrl, llmApiKey: config.llmFallback.apiKey }, errors) }];
         }
-        agentHarness = createChatAgent(repository, model,
+        agentHarness = config.math.variant !== "general" ? createMathChatAgent(model, config, log) : createChatAgent(repository, model,
             () => config.context.elasticsearchUrl ? new ElasticsearchMemorySearch(new TokenBudget(config.context), config.context) :
                 new LocalMemorySearch(new TokenBudget(config.context)), config.context, log,
             { ...config.harness, fallbackModels,
@@ -59,6 +63,7 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
                 additionalTools: (_session, signal, context) => mcp.tools(signal, context?.event) });
     }
     return {
+        mathOcr: overrides.mathOcr,
         runs,
         mcp,
         errors,

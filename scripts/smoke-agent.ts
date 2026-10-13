@@ -12,6 +12,7 @@ import { loadConfig } from "../src/config/env.js";
 // Default mode uses a real local OpenAI-compatible HTTP endpoint. --live uses the configured provider.
 const live = process.argv.includes("--live");
 const configured = loadConfig();
+configured.math.variant = "general"; // This smoke verifies the preserved generic baseline, not the math profile.
 if (live && !configured.llmApiKey) {
   console.error("Live smoke requires LLM_API_KEY in the launching terminal. No provider request was made.");
   process.exitCode = 2;

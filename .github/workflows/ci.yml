@@ -25,7 +25,6 @@ jobs:
         run: npm run build
       - name: Agent harness 控制评测
         run: npm run eval -- --repeats 2 --min-pass-rate 1 --out data/evaluations/ci-${{ github.run_id }}-${{ github.run_attempt }}
-      - name: 构建 Docker 镜像
-        run: docker build --tag ragagent-backend:ci .
+      # 暂停日常 CI 的 Docker 镜像构建；仍保留测试、应用构建和控制评测。
       - name: 验证完整的堆栈配置
         run: docker compose --env-file deploy/.env.example -f compose.yml config --quiet

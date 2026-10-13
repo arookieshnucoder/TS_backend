@@ -4,6 +4,12 @@
   "description": "",
   "main": "dist/server.js",
   "scripts": {
+    "math:download": "powershell -NoProfile -File scripts/download-math.ps1",
+    "smoke:math:live": "tsx scripts/smoke-math.ts",
+    "math:prepare": "tsx scripts/prepare-math.ts",
+    "math:enrich": "tsx scripts/enrich-math.ts",
+    "math:index": "tsx scripts/index-math.ts",
+    "eval:math": "tsx scripts/evaluate-math.ts",
     "eval": "tsx scripts/evaluate-agent.ts",
     "eval:live": "tsx scripts/evaluate-agent.ts --mode live",
     "test": "tsx --test tests/*.test.ts",

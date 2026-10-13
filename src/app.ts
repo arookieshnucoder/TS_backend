@@ -9,6 +9,7 @@ import { createHealthModule } from "./modules/health/health.module.js";
 import { createChatModule } from "./modules/chat/chat.module.js";
 import { createMcpModule } from "./modules/mcp/mcp.module.js";
 import { createObservabilityModule } from "./modules/observability/observability.module.js";
+import { createMathModule } from "./modules/math/math.module.js";
 
 export function createApp(
     config: AppConfig = loadConfig(),
@@ -23,6 +24,7 @@ export function createApp(
     app.use(cors({ origin: config.frontendOrigin, exposedHeaders: ["X-Request-Id"] }));
     app.use(express.json({ limit: "1mb" }));
     app.use("/api/health", createHealthModule());
+    app.use("/api/math", createMathModule(config.math.variant, dependencies.mathOcr));
     // 返回给前端的聊天接口
     app.use("/api/chat", createChatModule(chatService, dependencies.errors));
     app.use("/api/mcp", createMcpModule(dependencies.mcp, config.frontendOrigin, config.mcp.adminToken, config.nodeEnv === "production"));

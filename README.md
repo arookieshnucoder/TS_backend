@@ -1,6 +1,8 @@
-# Ask Agent 后端
+# 初中数学搜题 Agent 后端
 
-基于 **Node.js + TypeScript + Express 5** 的问答 Agent 服务。支持会话管理、历史记忆检索、工作区只读工具和本地 JSON 持久化。
+基于 **Node.js + TypeScript + Express 5** 的初中数学搜题与解题服务。默认使用专用数学工作流、100题公开知识库、embedding-3向量检索与GLM-4.7；保留原通用智能体及三种改进消融配置。支持文字规范化、问题向量保存、相似题解法检索、会话管理与OCR接口预留。
+
+完整设计、启动与测评命令见 [初中数学 Agent](docs/MATH_AGENT.md)，实际测评结果见 [指标与实验记录](docs/MATH_RESULTS.md)。以下原AskAgent说明适用于 `MATH_AGENT_VARIANT=general`；数学配置沿用相同HTTP与观测平台。
 
 AskAgent 用 TypeScript 实现多轮工具调用工作流；Harness 提供上下文构建、工具执行、超时取消与日志；LangChain 负责接入 OpenAI 兼容模型。模型按需选择工具，也可以直接回答。
 
@@ -24,13 +26,15 @@ npm install
 ```powershell
 $env:PORT = "8080"
 $env:FRONTEND_ORIGIN = "http://localhost:3000"
-$env:LLM_BASE_URL = "https://api.deepseek.com"
-$env:LLM_MODEL = "deepseek-flash"
+$env:LLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+$env:LLM_MODEL = "glm-4.7"
+$env:MATH_AGENT_VARIANT = "combined"
 $env:LLM_API_KEY = Read-Host "输入模型 API Key"
+npm run math:index
 npm run dev
 ```
 
-这里的模型地址和名称与当前代码默认值一致；使用其他服务时，改为该服务的兼容接口地址和你有权限使用的模型名。开发模式会监听源码变化并重启，按 `Ctrl+C` 停止。
+这里使用当前数学配置的GLM-4.7与embedding-3。恢复原通用聊天可设置`MATH_AGENT_VARIANT=general`，再配置对应模型。数学配置使用其他embedding服务时须单独设置`EMBEDDING_API_KEY`。开发模式会监听源码变化并重启，按 `Ctrl+C` 停止。
 
 **`LLM_API_KEY` 只从启动终端的环境变量读取，写入 `.env` 不会加载。** 上述变量只影响当前 PowerShell 会话；新开终端需重新设置。修改配置后重启后端。
 
@@ -63,8 +67,9 @@ npm start
 | --- | --- | --- |
 | `PORT` | `8080` | 后端监听端口 |
 | `FRONTEND_ORIGIN` | `http://localhost:3000` | 允许的前端来源，需与实际前端地址一致 |
-| `LLM_BASE_URL` | `https://api.deepseek.com` | OpenAI 兼容模型接口地址 |
-| `LLM_MODEL` | `deepseek-flash` | 模型名称 |
+| `LLM_BASE_URL` | `https://open.bigmodel.cn/api/paas/v4` | 数学配置的GLM兼容接口地址 |
+| `LLM_MODEL` | `glm-4.7` | 数学模型名称；general保留原模型默认值 |
+| `MATH_AGENT_VARIANT` | `combined` | baseline/agent/harness/combined；general恢复通用配置 |
 | `LLM_API_KEY` | 无 | 模型凭据，仅从环境变量读取 |
 | `LLM_TIMEOUT_MS` | `120000` | 模型请求及会话执行的超时配置，单位毫秒 |
 | `SESSION_DATA_DIR` | `backend/data/sessions` | 会话 JSON 存储目录 |

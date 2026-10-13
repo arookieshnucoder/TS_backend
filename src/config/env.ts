@@ -7,6 +7,7 @@ import { join, dirname, basename } from "node:path";
 import { loadEnvironment } from "./environment.js";
 import { loadContextConfig, type ContextConfig } from "../modules/harness/context/config.js";
 import { loadHarnessConfig, type HarnessConfig } from "../modules/harness/config.js";
+import type { MathVariant } from "../modules/math/contracts.js";
 
 
 /**
@@ -14,6 +15,7 @@ import { loadHarnessConfig, type HarnessConfig } from "../modules/harness/config
  * 但是不建议自己的大模型ApiKey放在里面，这个自己做终端的环境变量来管理更安全。
  */
 export interface AppConfig {
+    math: { variant: MathVariant | "general"; corpusPath: string; indexPath: string; submissionsPath: string; embeddingBaseUrl: string; thinking: "enabled" | "disabled" };
     observability: { enabled: boolean; dataDir: string; maxEvents: number };
     llmFallback?: { model: string; baseUrl?: string; apiKey?: string };
     mcp: { configFile: string; adminToken?: string; timeoutMs: number };
@@ -57,8 +59,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
     if (nodeEnv !== "development" && nodeEnv !== "test" && nodeEnv !== "production") {
         throw new Error("NODE_ENV must be development, test or production");
     }
+    const mathVariant = env.MATH_AGENT_VARIANT ?? (nodeEnv === "test" ? "general" : "combined");
+    if (!["general", "baseline", "agent", "harness", "combined"].includes(mathVariant)) throw new Error("Invalid MATH_AGENT_VARIANT");
+    const thinking = env.GLM_THINKING ?? "disabled";
+    if (!["enabled", "disabled"].includes(thinking)) throw new Error("Invalid GLM_THINKING");
+    const mathEmbeddingUrl = env.MATH_EMBEDDING_BASE_URL ?? "https://open.bigmodel.cn/api/paas/v4";
+    const mathUrl = new URL(mathEmbeddingUrl);
+    if (mathUrl.protocol !== "https:" || mathUrl.username || mathUrl.password || mathUrl.search || mathUrl.hash) throw new Error("Invalid MATH_EMBEDDING_BASE_URL");
     // LLM相关配置, 默认DS-flash
-    const llmBaseUrl = env.LLM_BASE_URL ?? "https://api.deepseek.com";
+    const llmBaseUrl = env.LLM_BASE_URL ?? (mathVariant === "general" ? "https://api.deepseek.com" : "https://open.bigmodel.cn/api/paas/v4");
     const llmTimeoutMs = Number(env.LLM_TIMEOUT_MS ?? "120000");
     if (!Number.isInteger(llmTimeoutMs) || llmTimeoutMs < 1 || llmTimeoutMs > 600000) throw new Error("LLM_TIMEOUT_MS must be 1..600000");
     if (llmBaseUrl) {
@@ -81,12 +90,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
         llmFallback = { model: env.LLM_FALLBACK_MODEL, baseUrl, apiKey: env.LLM_FALLBACK_API_KEY || env.LLM_API_KEY };
     } else if (env.LLM_FALLBACK_BASE_URL || env.LLM_FALLBACK_API_KEY) throw new Error("Fallback settings require LLM_FALLBACK_MODEL");
     return {
+        math: { variant: mathVariant as MathVariant | "general", thinking: thinking as "enabled" | "disabled", embeddingBaseUrl: mathEmbeddingUrl,
+            corpusPath: env.MATH_CORPUS_PATH ?? fileURLToPath(new URL("../../evals/math/corpus.json", import.meta.url)),
+            indexPath: env.MATH_INDEX_PATH ?? fileURLToPath(new URL("../../data/math/index.json", import.meta.url)),
+            submissionsPath: env.MATH_SUBMISSIONS_PATH ?? fileURLToPath(new URL("../../data/math/submissions", import.meta.url)) },
         observability: { enabled: traceEnabled === "true", dataDir: env.AGENT_RUN_DATA_DIR ?? join(dirname(sessionDataDir), `${basename(sessionDataDir)}-runs`), maxEvents },
         llmFallback,
         mcp: { configFile: env.MCP_CONFIG_FILE ?? join(dirname(sessionDataDir), "mcp-servers.json"), adminToken: env.MCP_ADMIN_TOKEN || undefined, timeoutMs: mcpTimeout },
         port, frontendOrigin, nodeEnv, shutdownTimeoutMs: 5000, context: loadContextConfig(env), harness: loadHarnessConfig(env),
         sessionDataDir,
         llmApiKey: env.LLM_API_KEY,
-        llmModel: env.LLM_MODEL ?? "deepseek-flash", llmBaseUrl, llmTimeoutMs
+        llmModel: env.LLM_MODEL ?? (mathVariant === "general" ? "deepseek-flash" : "glm-4.7"), llmBaseUrl, llmTimeoutMs
     };
 }
