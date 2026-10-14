@@ -22,6 +22,7 @@ export class ToolRegistry {
      * @returns 工具定义的数组，包含所有已注册的只读工具的副本。
      */
     definitions(): ToolDefinition[] { return [...this.entries.values()].map(tool => structuredClone(tool.definition)); }
+    parallelSafe(name:string) {const t=this.entries.get(name);return t?.readonly===true&&t?.idempotent===true;}
     async execute(call: ToolCall, signal?: AbortSignal): Promise<AgentMessage> {
         signal?.throwIfAborted();
         const tool = this.entries.get(call.name);

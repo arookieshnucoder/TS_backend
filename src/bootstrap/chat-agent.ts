@@ -13,6 +13,7 @@ import { HarnessChatAgent, type ChatToolFactory, type ChatTitleGenerator } from 
 import { createMemoryTools } from "../modules/chat/service/memory-tools.js";
 import { createWorkspaceTools } from "../modules/harness/workspace-tools.js";
 import { abortable } from "../modules/harness/cancellation.js";
+import { mathAnalyzeTool, mathCalculateTool } from "../modules/math/task-tools.js";
 
 export interface ChatAgentOptions extends HarnessOptions {
     additionalTools?: ChatToolFactory;
@@ -55,15 +56,15 @@ export function createChatAgent(repository: ChatSessionRepository, model: AgentM
     const tokens = new TokenBudget(config);
     const title = new SessionTitleGenerator(model, tokens, config);
     const toolFactory: ChatToolFactory = options.tools ?? (async (session, signal, _context, runtime) => {
-        const candidates = structuredClone((await repository.findAll()).filter(s => s.id !== session.id && s.messages.length)
-            .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).slice(0, 10));
+        const candidates = (await repository.findAll()).filter(s => s.id !== session.id && s.messages.length)
+            .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).slice(0, 10);
         signal?.throwIfAborted();
         return [...createMemoryTools(session, candidates, searchFactory(), runtime.compression, config),
         ...(options.workspaceRoot ? createWorkspaceTools(options.workspaceRoot, options.excludedPaths) : [])];
     });
     return new HarnessChatAgent(harness, async (session, signal, context, runtime) => {
         const [custom, extra] = await Promise.all([toolFactory(session, signal, context, runtime), options.additionalTools?.(session, signal, context, runtime) ?? []]);
-        return [...custom, ...extra];
+        return [...custom, ...extra, ...(options.tools?[]:[mathAnalyzeTool(),mathCalculateTool()].filter(t=>![...custom,...extra].some(existing=>existing.definition.name===t.definition.name)))];
     }, options.title ?? (async (session, signal) => {
         try { return await abortable(() => title.execute(session, signal), signal); }
         catch {

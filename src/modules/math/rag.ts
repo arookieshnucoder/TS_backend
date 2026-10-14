@@ -30,38 +30,58 @@ export async function buildIndex(questions: MathQuestion[], embeddings: Embeddin
     return index;
 }
 export interface Retrieved { question: MathQuestion; score: number; denseScore: number; }
-export interface Retrieval { hits: Retrieved[]; query: string; cacheHit: boolean; durationMs: number; mode: "dense" | "hybrid"; checks?: Record<string, unknown>; verifiedSolution?:VerifiedMathSolution; }
+export type RetrievalMode = "dense" | "hybrid" | "lexical" | "rerank";
+export interface Retrieval { hits: Retrieved[]; query: string; cacheHit: boolean; durationMs: number; mode: RetrievalMode; candidateIds?: string[]; stages?: Record<string,number>; checks?: Record<string, unknown>; verifiedSolution?:VerifiedMathSolution; }
 export class MathRag {
     private readonly documents: string[][];
-    private readonly frequencies = new Map<string, number>();
+    private readonly frequencies: Map<string, number>;
     private readonly cache = new Map<string, Retrieval>();
-    constructor(readonly questions: MathQuestion[], private readonly index: VectorIndex, private readonly embeddings: Embeddings) {
+    private readonly termCounts: Map<string,number>[];
+    private readonly avgLength: number;
+    private cacheBytes = 0;
+    private readonly cacheBudgetBytes = 2 * 1024 * 1024;
+    constructor(readonly questions: MathQuestion[], private readonly index: VectorIndex, private readonly embeddings: Embeddings, shared?:MathRag) {
+        if(shared){this.documents=shared.documents;this.termCounts=shared.termCounts;this.frequencies=shared.frequencies;this.avgLength=shared.avgLength;return;}
         validateIndex(index, questions, embeddings);
+        this.frequencies=new Map();
         this.documents = questions.map(q => tokens(retrievalText(q)));
+        this.termCounts = this.documents.map(doc=>{const tf=new Map<string,number>();for(const t of doc)tf.set(t,(tf.get(t)??0)+1);return tf;});
+        this.avgLength = this.documents.reduce((s,d)=>s+d.length,0)/Math.max(1,this.documents.length);
         for (const doc of this.documents) for (const token of new Set(doc)) this.frequencies.set(token, (this.frequencies.get(token) ?? 0) + 1);
     }
     static async open(questions: MathQuestion[], path: string, embeddings: Embeddings) { return new MathRag(questions, JSON.parse(await readFile(path, "utf8")), embeddings); }
     /** Separate caches keep ablation latency independent of the other variant's execution order. */
-    fork() { return new MathRag(this.questions, this.index, this.embeddings); }
+    fork() { return new MathRag(this.questions, this.index, this.embeddings,this); }
     private lexical(query: string): number[] {
-        const terms = [...new Set(tokens(query))], avg = this.documents.reduce((s, d) => s + d.length, 0) / this.documents.length;
-        return this.documents.map(doc => terms.reduce((sum, term) => {
-            const tf = doc.filter(t => t === term).length, df = this.frequencies.get(term) ?? 0;
-            return sum + Math.log(1 + (this.documents.length - df + .5) / (df + .5)) * tf * 2.2 / (tf + 1.2 * (.25 + .75 * doc.length / avg));
+        const terms = [...new Set(tokens(query))];
+        return this.documents.map((doc,i) => terms.reduce((sum, term) => {
+            const tf = this.termCounts[i]!.get(term)??0, df = this.frequencies.get(term) ?? 0;
+            return sum + Math.log(1 + (this.documents.length - df + .5) / (df + .5)) * tf * 2.2 / (tf + 1.2 * (.25 + .75 * doc.length / this.avgLength));
         }, 0));
     }
-    async search(query: string, mode: "dense" | "hybrid", signal?: AbortSignal): Promise<Retrieval> {
+    private remember(key:string,result:Retrieval) {
+        const bytes=(JSON.stringify(result).length+key.length)*2;
+        if(bytes>this.cacheBudgetBytes)return;
+        if(this.cache.has(key)){this.cacheBytes-=(JSON.stringify(this.cache.get(key)).length+key.length)*2;this.cache.delete(key);}
+        while(this.cache.size && (this.cache.size>=128 || this.cacheBytes+bytes>this.cacheBudgetBytes)) {
+            const oldest=this.cache.keys().next().value!;this.cacheBytes-=(JSON.stringify(this.cache.get(oldest)).length+oldest.length)*2;this.cache.delete(oldest);
+        }
+        this.cache.set(key,result);this.cacheBytes+=bytes;
+    }
+    cacheStats(){return {entries:this.cache.size,bytes:this.cacheBytes,budgetBytes:this.cacheBudgetBytes};}
+    async search(query: string, mode: RetrievalMode, signal?: AbortSignal, preparedVector?:number[]): Promise<Retrieval> {
         signal?.throwIfAborted();
         if (!query.trim() || query.length > 12000) throw new Error("Invalid math retrieval query");
-        const started = performance.now(), key = normalizeMath(query);
-        if (mode === "hybrid" && this.cache.has(key)) {
+        const started = performance.now(), key = mode+":"+normalizeMath(query);
+        if (mode !== "dense" && this.cache.has(key)) {
             const cached = this.cache.get(key)!; this.cache.delete(key); this.cache.set(key, cached);
             return { ...structuredClone(cached), cacheHit: true, durationMs: performance.now() - started };
         }
         // Choice distractors and broad expansions can move a mathematical query away from its method.
         const stem = query.split(/\nA[.．]/)[0]!;
         const expanded = expandQuery(stem);
-        const [vector] = await this.embeddings.embed([mode === "hybrid" ? normalizeMath(stem) : normalizeMath(query)], signal);
+        if(mode==="lexical" || mode==="rerank")return this.optimizedSearch(query,stem,mode,key,started,signal,preparedVector);
+        const [vector] = preparedVector?[preparedVector]:await this.embeddings.embed([mode === "hybrid" ? normalizeMath(stem) : normalizeMath(query)], signal);
         if (!vector || vector.length !== this.index.dimensions || vector.some(n => !Number.isFinite(n))) throw new Error("Invalid query embedding");
         const dense = this.index.vectors.map(v => cosine(vector, v)), sparse = mode === "hybrid" ? this.lexical(stem) : [];
         const rank = (scores: number[]) => scores.map((score, i) => ({ score, i })).sort((a, b) => b.score - a.score || a.i - b.i);
@@ -87,16 +107,49 @@ export class MathRag {
         }
         const result: Retrieval = { hits: selected.map(item => ({ question: structuredClone(this.questions[item.i]!), score: item.score, denseScore: dense[item.i]! })),
             query: expanded.text, cacheHit: false, durationMs: performance.now() - started, mode,
+            candidateIds:[...selected,...candidates].slice(0,10).map(item=>this.questions[item.i]!.id),
             ...(mode === "hybrid" ? { checks: deterministicChecks(query),verifiedSolution:verifiedSolution(query) } : {}) };
-        if (mode === "hybrid") { if (this.cache.size >= 128) this.cache.delete(this.cache.keys().next().value!); this.cache.set(key, structuredClone(result)); }
+        if (mode === "hybrid") this.remember(key,structuredClone(result));
         return result;
     }
-    tool(mode: "dense" | "hybrid", event?: (name: string, fields: Record<string, unknown>) => void) {
+    private async optimizedSearch(query:string,stem:string,mode:"lexical"|"rerank",key:string,started:number,signal?:AbortSignal,preparedVector?:number[]) {
+        const sparseStart=performance.now(), sparse=this.lexical(stem), sparseMs=performance.now()-sparseStart;
+        const embeddingStart=performance.now();
+        const [vector]=mode==="rerank"?(preparedVector?[preparedVector]:await this.embeddings.embed([normalizeMath(stem)],signal)):[];
+        if(mode==="rerank"&&(!vector||vector.length!==this.index.dimensions||vector.some(n=>!Number.isFinite(n))))throw new Error("Invalid query embedding");
+        const dense=vector?this.index.vectors.map(v=>cosine(vector,v)):this.questions.map(()=>0);
+        const embeddingMs=performance.now()-embeddingStart,rerankStart=performance.now();
+        const rank=(s:number[])=>s.map((score,i)=>({score,i})).sort((a,b)=>b.score-a.score||a.i-b.i);
+        const fused=this.questions.map(()=>0);
+        rank(sparse).forEach((v,i)=>fused[v.i]!+=(mode==="lexical"?1:.5)/(30+i+1));
+        if(vector)rank(dense).forEach((v,i)=>fused[v.i]!+=.5/(30+i+1));
+        const candidates=rank(fused).slice(0,40),numbers=new Set(stem.match(/\d+(?:\.\d+)?/g)??[]);
+        // Cheap formula/number reranker; no second model or grader labels are consulted.
+        const reranked=candidates.map(v=>{const text=this.questions[v.i]!.question,nums=new Set(text.match(/\d+(?:\.\d+)?/g)??[]);
+            const overlap=[...numbers].filter(n=>nums.has(n)).length/Math.max(1,numbers.size);
+            const exact=normalizeMath(text)===normalizeMath(stem)?1:0;
+            return {...v,score:v.score+.007*overlap+.1*exact};}).sort((a,b)=>b.score-a.score||a.i-b.i);
+        const result:Retrieval={hits:reranked.slice(0,3).map(v=>({question:structuredClone(this.questions[v.i]!),score:v.score,denseScore:dense[v.i]!})),
+            query:expandQuery(stem).text,mode,cacheHit:false,durationMs:performance.now()-started,candidateIds:reranked.slice(0,10).map(v=>this.questions[v.i]!.id),
+            stages:{bm25Ms:sparseMs,embeddingMs,rerankMs:performance.now()-rerankStart},checks:deterministicChecks(query)};
+        this.remember(key,structuredClone(result));return result;
+    }
+    async searchBatch(queries:string[],mode:RetrievalMode,signal?:AbortSignal) {
+        if(!queries.length||queries.length>8||queries.some(q=>!q.trim()||q.length>12000))throw new Error("Invalid retrieval batch");
+        const unique=[...new Set(queries)];
+        // Batch only misses; cached warm queries incur no embedding request.
+        const misses=unique.filter(q=>mode==="dense"||!this.cache.has(mode+":"+normalizeMath(q)));
+        const vectors=mode==="lexical"||!misses.length?[]:await this.embeddings.embed(misses.map(q=>normalizeMath(mode==="dense"?q:q.split(/\nA[.．]/)[0]!)),signal);
+        const results=new Map<string,Retrieval>();
+        for(const q of unique)results.set(q,await this.search(q,mode,signal,vectors[misses.indexOf(q)]));
+        return queries.map(q=>results.get(q)!);
+    }
+    tool(mode: RetrievalMode, event?: (name: string, fields: Record<string, unknown>) => void) {
         return defineReadOnlyTool({ name: "math_search", description: mode === "dense" ? "Search the junior mathematics knowledge base for related solved questions using vector similarity." :
             "检索初中数学相似题及解题卡片。使用语义向量+BM25融合和多样性重排；返回例题、方法、易错点和来源。输入完整题干，保留公式。例题答案不可直接当作当前题答案。",
             parameters: { query: stringParameter(12000) }, execute: async ({ query }, signal) => {
                 const result = await this.search(query, mode, signal);
-                event?.("math.retrieval", { mode, cacheHit: result.cacheHit, durationMs: result.durationMs, ids: result.hits.map(h => h.question.id), topics: result.hits.map(h => h.question.topic), checks: result.checks ? Object.keys(result.checks) : [] });
+                event?.("math.retrieval", { mode, cacheHit: result.cacheHit, durationMs: result.durationMs, ids: result.hits.map(h => h.question.id), candidateIds:result.candidateIds, stages:result.stages, topics: result.hits.map(h => h.question.topic), checks: result.checks ? Object.keys(result.checks) : [] });
                 return this.evidence(result, mode === "hybrid");
             } });
     }

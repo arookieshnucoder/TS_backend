@@ -1,0 +1,21 @@
+import {mkdir,readFile,readdir,writeFile} from "node:fs/promises";
+import {join,resolve} from "node:path";
+import {conclusions} from "../src/modules/evaluation/math-conclusion.js";
+import {rate} from "../src/modules/evaluation/statistics.js";
+import {hash} from "../src/modules/math/corpus.js";
+const root=resolve(process.argv[2]??"data/evaluations/glm46v-final-v4"),old=JSON.parse(await readFile(join(root,"comparison.json"),"utf8"));
+const graderHash=hash(await readFile("src/modules/evaluation/math-conclusion.ts","utf8")),out=join(root,"answer-accuracy");await mkdir(out,{recursive:true});
+const rows:any[]=[];
+for(const row of old.rows){const folder=join(root,row.variant,"trials"),ts=await Promise.all((await readdir(folder)).filter(f=>f.endsWith(".json")).map(async f=>JSON.parse(await readFile(join(folder,f),"utf8"))));
+    const revised=ts.map(t=>{const vector=conclusions(t.answer,t.expected.length),passed=t.expected.length?!t.error&&vector.every((a,i)=>a===t.expected[i]):t.passed;return {caseId:t.caseId,category:t.category,passed,originalPassed:t.passed,expected:t.expected,extracted:vector,originalExtracted:t.extracted};});
+    const subgroups=Object.fromEntries([...new Set(revised.map(t=>t.category))].map(category=>{const list=revised.filter(t=>t.category===category);return [category,rate(list.filter(t=>t.passed).length,list.length)];}));
+    const applicable=ts.filter(t=>t.expected.length);
+    rows.push({...row,accuracy:rate(revised.filter(t=>t.passed).length,revised.length),strictAccuracy:row.accuracy,formatCompliance:rate(applicable.filter(t=>t.extracted.every((x:any)=>x!==null)).length,applicable.length),subgroups,failures:revised.filter(t=>!t.passed).map(t=>t.caseId)});
+    await writeFile(join(out,`${row.variant}-grades.json`),JSON.stringify(revised,null,2));
+}
+const report={scope:"Uniform offline regrading of every unchanged raw model answer. Explicit final conclusions can be inline, on separate lines, or in numbered sections. Retrieved-example conclusions are excluded; conflicting conclusions still fail. Timeouts and missing answers remain failures. Original strict conclusion score and format compliance are preserved separately. Latencies, model calls and memory are untouched. Dataset and model outputs were used for error analysis: fixed regression, not blind testing.",graderHash,sourceStudy:"../comparison.json",rows};
+await writeFile(join(out,"comparison.json"),JSON.stringify(report,null,2));
+const md=`# GLM-4.6V：答案准确率与格式符合率\n\n${report.scope}\n\n|版本|答案正确/总数|答案准确率|格式符合率|p95秒|p99秒|heap MiB|RSS MiB|\n|---|---:|---:|---:|---:|---:|---:|---:|\n${rows.map(r=>`|${r.variant}|${r.accuracy.successes}/${r.total}|${(100*r.accuracy.value).toFixed(1)}%|${(100*r.formatCompliance.value).toFixed(1)}%|${(r.p95Ms/1000).toFixed(2)}|${(r.p99Ms/1000).toFixed(2)}|${r.peakHeapMiB.toFixed(1)}|${r.peakRssMiB.toFixed(1)}|`).join("\n")}\n\n每个版本保留原始严格评分、Wilson区间、逐题原始输出与修订评分；所有版本使用同一评分器哈希 ${graderHash}。\n`;
+await writeFile(join(out,"comparison.md"),md);
+await writeFile(join(out,"comparison.html"),`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>GLM-4.6V 对比</title><style>body{font:16px/1.7 system-ui;max-width:1200px;margin:30px auto;padding:20px}table{width:100%;border-collapse:collapse}td,th{padding:12px;border-bottom:1px solid #ddd;text-align:left}a{color:#2466bb}</style><h1>GLM-4.6V 初三数学：六个工作流</h1><p>500题，50道长难题。每版100案例，分别记录答案正确与格式符合。</p><table><tr><th>版本</th><th>答案准确率</th><th>格式符合率</th><th>p95秒</th><th>p99秒</th><th>heap MiB</th></tr>${rows.map(r=>`<tr><td>${r.variant}</td><td>${(100*r.accuracy.value).toFixed(1)}%</td><td>${(100*r.formatCompliance.value).toFixed(1)}%</td><td>${(r.p95Ms/1000).toFixed(2)}</td><td>${(r.p99Ms/1000).toFixed(2)}</td><td>${r.peakHeapMiB.toFixed(1)}</td></tr>`).join("")}</table><p>${report.scope}</p><a href="comparison.json">完整指标</a> · <a href="../comparison.html">原始严格评分</a></html>`);
+console.log(JSON.stringify(rows.map(r=>({variant:r.variant,accuracy:r.accuracy.value,strict:r.strictAccuracy.value,p95:r.p95Ms,p99:r.p99Ms,heap:r.peakHeapMiB}))));

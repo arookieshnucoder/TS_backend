@@ -8,7 +8,7 @@ import { createApp } from "../src/app.js";
 import { loadConfig } from "../src/config/env.js";
 if (!process.env.LLM_API_KEY) throw new Error("Live smoke requires LLM_API_KEY");
 const directory = await mkdtemp(join(tmpdir(), "math-live-smoke-"));
-const config = loadConfig({ ...process.env, NODE_ENV: "test", MATH_AGENT_VARIANT: "combined", LLM_MODEL: "glm-4.7", LLM_BASE_URL: "https://open.bigmodel.cn/api/paas/v4",
+const config = loadConfig({ ...process.env, NODE_ENV: "test", MATH_AGENT_VARIANT: "combined", LLM_MODEL: "glm-4.6v", LLM_BASE_URL: "https://open.bigmodel.cn/api/paas/v4",
     SESSION_DATA_DIR: join(directory, "sessions"), MATH_SUBMISSIONS_PATH: join(directory, "questions"), AGENT_MODEL_ATTEMPT_TIMEOUT_MS: "120000", AGENT_TOOL_TIMEOUT_MS: "30000" });
 const server = createApp(config).listen(0, "127.0.0.1"); await once(server, "listening");
 try {
@@ -25,5 +25,5 @@ try {
     const openResult = (await post(`/api/chat/sessions/${session.id}/messages`, { content: "求函数 y=x²-4x+1 的最小值。这是非选择题，请写实际数值并检验。" })).data;
     const openAnswer = openResult.messages.at(-1).content;
     assert.match(openAnswer, /-3/); assert.doesNotMatch(openAnswer, /(?:^|\n)\s*(?:\*\*)?答案[：:]\s*(?:\*\*)?[A-D](?:\s|$)/);
-    console.log("LIVE PASS: HTTP → text normalization → vector persistence → hybrid RAG → GLM-4.7 solve → session/submission save; multiple-choice and open-question review; OCR reserved 501.");
+    console.log("LIVE PASS: HTTP → text normalization → vector persistence → hybrid RAG → GLM-4.6V solve → session/submission save; multiple-choice and open-question review; OCR reserved 501.");
 } finally { server.closeAllConnections(); await new Promise<void>(r => server.close(() => r())); }

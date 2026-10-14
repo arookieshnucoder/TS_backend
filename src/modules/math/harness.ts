@@ -4,9 +4,11 @@ import { MathRag } from "./rag.js";
 export class MathRetrievalHarness implements HarnessRunner {
     constructor(private readonly inner: HarnessRunner, private readonly rag: MathRag) {}
     async run(input: HarnessInput, signal?: AbortSignal) {
+        input.onEvent?.("math.retrieval.started",{mode:"hybrid",prefetched:true});
         const result = await this.rag.search(input.question, "hybrid", signal);
         input.onEvent?.("math.retrieval", { mode: "hybrid", cacheHit: result.cacheHit, durationMs: result.durationMs,
+            candidateIds:result.candidateIds,stages:result.stages,
             ids: result.hits.map(h => h.question.id), topics: result.hits.map(h => h.question.topic), prefetched: true, checks: result.checks ? Object.keys(result.checks) : [] });
-        return this.inner.run({ ...input, history: [...input.history, { role: "user", content: `[数学检索资料]\n${this.rag.evidence(result, true)}` }] }, signal);
+        return this.inner.run({ ...input, historyPolicy:"full",proactiveTools:false, history: [...input.history, { role: "user", content: `[数学检索资料]\n${this.rag.evidence(result, true)}` }] }, signal);
     }
 }

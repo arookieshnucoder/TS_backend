@@ -23,10 +23,11 @@ export function createMathChatAgent(model: AgentModel, config: AppConfig, logger
         async run(session, current, signal, context) {
             const rag = await getRag();
             signal?.throwIfAborted();
-            const submission = await submissions.ingest(current.content, signal);
+            const optimized=["lexical","rerank","memory","batch","adaptive"].includes(config.math.variant);
+            const submission = await submissions.ingest(current.content, signal,!optimized);
             context?.event("math.ingested", { submissionId: submission.record.id, normalizedLength: submission.record.normalized.length });
             const profile = createMathProfile(config.math.variant === "general" ? "combined" : config.math.variant, rag, model, config.context, logger, config.harness);
-            const result = await profile.harness.run({ history: session.messages.map(({ role, content }) => ({ role, content })), question: submission.record.normalized,
+            const result = await profile.harness.run({ history: session.messages.map(({ role, content }) => ({ role, content })), question: current.content.trim(),
                 tools: [rag.tool(profile.mode, context?.event)], metadata: { sessionId: session.id, messageId: current.id, runId: context?.runId }, onEvent: context?.event }, signal);
             signal?.throwIfAborted();
             await submission.finish(result.content);

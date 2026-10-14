@@ -6,12 +6,12 @@ import { normalizeMath } from "./normalize.js";
 /** Incoming questions have their own vector collection; unverified model answers never enter the trusted KB. */
 export class MathSubmissions {
     constructor(private readonly directory: string, private readonly embeddings: Embeddings) {}
-    async ingest(text: string, signal?: AbortSignal) {
+    async ingest(text: string, signal?: AbortSignal, vectorize=true) {
         if (!text.trim() || text.length > 12000) throw new Error("Invalid math question text");
-        const normalized = normalizeMath(text), [vector] = await this.embeddings.embed([normalized], signal);
-        if (!vector || vector.length !== this.embeddings.dimensions || vector.some(n => !Number.isFinite(n))) throw new Error("Invalid submission embedding");
+        const normalized = normalizeMath(text), [vector] = vectorize?await this.embeddings.embed([normalized], signal):[];
+        if (vectorize&&(!vector || vector.length !== this.embeddings.dimensions || vector.some(n => !Number.isFinite(n)))) throw new Error("Invalid submission embedding");
         signal?.throwIfAborted();
-        const record = { id: randomUUID(), text, normalized, vector, embeddingModel: this.embeddings.model, dimensions: this.embeddings.dimensions,
+        const record = { id: randomUUID(), text, normalized, vector:vector??null, embeddingStatus:vectorize?"stored":"retrieval_owned", embeddingModel: this.embeddings.model, dimensions: this.embeddings.dimensions,
             createdAt: new Date().toISOString(), status: "pending", trusted: false, answer: null as string | null };
         await mkdir(this.directory, { recursive: true });
         await writeFile(join(this.directory, `${record.id}.json`), JSON.stringify(record), { flag: "wx" });

@@ -1,5 +1,49 @@
 # Agent / Harness 后端
 
+## 初三数学 v2 与 GLM-4.6V
+
+本次完整报告见 [优化报告](data/evaluations/glm46v-summary-final/report.md)，包含六版本对照、最终复验、RAG和长对话/内存结果。评测资产按既有约定位于忽略的data/与evals/目录；题库生成器、工具和评测代码纳入源代码。
+
+本次新增可重建的 **500 道初三练习题**，覆盖 23 个参数化题型，包含 **50 道长难题（10%）**。题目是本项目原创练习，解析由公式生成并检查，不标为真实中考试题。原 100 题保存在本地 `evals/math/corpus-legacy100.json`；原 MathBench 来源说明仍适用于该备份。新知识库不包含 development/test 的题干，但评测参数与知识库使用相同模板家族，不能称为未见题型泛化测试。
+
+模型统一使用 `glm-4.6v`。下面命令只读取进程环境中的 API 密钥：
+
+~~~powershell
+$env:LLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+$env:LLM_MODEL = "glm-4.6v"
+$env:LLM_API_KEY = Read-Host "GLM API Key" -MaskInput
+npm run math:expand
+npm run math:index
+npm run eval:math:optimization -- --rag-only true --out data/evaluations/rag-new
+npm run eval:math:study -- --suite test --out data/evaluations/study-new --concurrency 3 --cache cold
+~~~
+
+`math:expand` 可确定性重建题库；`math:prepare` 仍是恢复旧 MathBench 100 题的历史脚本。两者使用同一个默认 corpus 路径，切换后必须重新建索引。
+
+| 模式 | 作用 |
+| --- | --- |
+| `combined` | 现有专用 MathAgent + 混合检索 Harness，作为架构对照 |
+| `lexical` | BM25 + 公式/数字重排，无查询 embedding 请求 |
+| `rerank` | 向量与 BM25 的 RRF 融合，再按公式/数字重排 |
+| `memory` | rerank + 相关历史原文选择及最新用户更正取证 |
+| `batch` | memory + 显式多题拆分、批量 embedding、逐题证据 |
+| `adaptive` | batch + 需要核验的长难题再进行独立复核 |
+
+通用 Harness 增加 `history_lookup`；长历史优先取相关原文，带历史引用的问题在第一轮模型调用前取证。默认通用聊天工具增加 `math_analyze` 与安全数值工具 `math_calculate`，长数学输入可以先执行条件提取。显式自定义工具集合保持调用方约定。只读且幂等工具可并行，修改型工具仍按顺序执行。
+
+新实验报告包括：最终答案准确率和 Wilson 区间，标准题/长难题/长对话/多题/长输入/缺失条件分组，p50/p95/p99，首工具时间，模型与 token 用量，以及进程 RSS/heap 峰值。每个变体独立进程运行，输入、数据、模型和实现哈希一致。RAG 独立报告包含同题改写与方法意图两组的 Recall@3/10、Hit@3、Precision@3、MRR、nDCG，以及 embedding/BM25/重排阶段。方法查询的相关集合是同一标注模板家族的全部题，Recall@3 的上限为 `3/相关题数`；不能与单相关题的同题召回混为一谈。
+
+RAG 缓存同时限制 128 条与约 2 MiB，fork 共享已验证的索引和词频数据，独立缓存。GLM 工具推理状态随本轮消息传递，避免模型实例长期保留推理文本。新数学模式把向量化交给检索阶段；提交记录的 `embeddingStatus=retrieval_owned` 和 `vector=null` 表示没有额外重复生成提交向量，不代表向量已经持久化。
+
+~~~powershell
+npm test
+npm run test:eval
+npm run build
+node --import tsx scripts/evaluate-long-dialogue.ts data/evaluations/long-dialogue-new
+~~~
+
+更难的长对话测评把用户更正放在中间，再加入大量无关历史与错误的助手末尾总结，使用 8192-token 上下文预算。所有压力对话都是脚本生成的虚构数据。p99 是有限样本的描述性统计；8 个案例的 p99 等于最大值，100 个案例也不足以证明生产尾延迟稳定。
+
 Node.js + TypeScript + Express 5 后端，提供会话 API、Agent 工作流、Harness 执行环境、MCP 工具接入和逐问题运行记录。模型通过 LangChain 或 GLM 适配器接入。
 
 | 运行方式 | 用途 | 需要准备 |
@@ -25,7 +69,7 @@ if (-not (Test-Path -LiteralPath .env)) {
 }
 ~~~
 
-干净检出时先使用 `general`。当前代码及 `.env.example` 的非测试默认模式为 `combined`，但 `evals/` 和 `data/` 均未纳入版本控制，克隆仓库不会获得数学语料和索引。
+干净检出时先使用 `general`。当前代码及 `.env.example` 的非测试默认模式为 `adaptive`，但 `evals/` 和 `data/` 均未纳入版本控制，克隆仓库不会获得数学语料和索引。
 
 ~~~powershell
 $env:MATH_AGENT_VARIANT = "general"
@@ -109,7 +153,7 @@ docker compose --env-file deploy/.env -f compose.yml stop
 ~~~powershell
 $env:MATH_AGENT_VARIANT = "combined"
 $env:LLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
-$env:LLM_MODEL = "glm-4.7"
+$env:LLM_MODEL = "glm-4.6v"
 $env:LLM_API_KEY = Read-Host "数学模型 API Key" -MaskInput
 npm run math:index
 npm run dev
@@ -149,8 +193,8 @@ Compose 运行：启动终端环境和 `--env-file deploy/.env` 参与变量替�
 | 配置 | 代码默认值 / 标准部署值 | 用途 |
 | --- | --- | --- |
 | `PORT` / `FRONTEND_ORIGIN` | `8080` / `http://localhost:3000` | 监听端口与浏览器来源；原生示例来源为 5173 |
-| `MATH_AGENT_VARIANT` | 非测试默认 `combined`；标准 Compose 固定 `general` | 工作流选择 |
-| `LLM_BASE_URL` / `LLM_MODEL` | general：DeepSeek / `deepseek-flash`；数学：GLM / `glm-4.7` | 主模型 |
+| `MATH_AGENT_VARIANT` | 非测试默认 `adaptive`；标准 Compose 固定 `general` | 工作流选择 |
+| `LLM_BASE_URL` / `LLM_MODEL` | general：DeepSeek / `deepseek-flash`；数学：GLM / `glm-4.6v` | 主模型 |
 | `LLM_TIMEOUT_MS` | `120000` | 整轮回答超时；标题另有最多 5 秒预算 |
 | `LLM_MAX_INPUT_TOKENS` | `32768` | Harness 输入预算 |
 | `AGENT_MAX_TOOL_STEPS` / `AGENT_MAX_CALLS_PER_STEP` | `4` / `4` | 工具轮数与每轮调用上限 |
@@ -273,7 +317,7 @@ $result.data.messages[-1].content
 | `npm run eval` / `eval:live` | Agent + Harness 离线控制 / 真实模型评测 | `evals/agent-v1.json`、`evals/fixtures/mcp-server.mjs`；live 另需模型 Key | 否 |
 | `npm run eval:math` / `smoke:math:live` | 数学配置评测 / 真实链路验证 | 数学语料、索引及模型、embedding 凭据 | 否 |
 
-`evals/` 保持本地管理，不作为修复 CI 的必需提交内容。数学语料校验的后端回归测试使用自包含夹具；真实语料的 100/12/30 数量与来源断言保留在手动评测测试中。
+`evals/` 保持本地管理，不作为修复 CI 的必需提交内容。数学语料校验的后端回归测试使用自包含夹具；真实语料的 500/23/77 数量与原创来源断言保留在手动评测测试中。
 
 ~~~powershell
 npm test

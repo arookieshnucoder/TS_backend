@@ -117,10 +117,10 @@ test("memory repository does not leak mutable entities", async () => {
 
 test("configuration has defaults and rejects invalid deployment values", () => {
   assert.equal(loadConfig({}).port, 8080);
-  assert.equal(loadConfig({}).llmModel, "glm-4.7");
+  assert.equal(loadConfig({}).llmModel, "glm-4.6v");
   assert.equal(loadConfig({}).llmBaseUrl, "https://open.bigmodel.cn/api/paas/v4");
   assert.equal(loadConfig({ MATH_AGENT_VARIANT: "general" }).llmModel, "deepseek-flash");
-  assert.equal(loadConfig({}).math.variant, "combined");
+  assert.equal(loadConfig({}).math.variant, "adaptive");
   assert.equal(loadConfig({ OPENAI_API_KEY: "ignored" }).llmApiKey, undefined);
   assert.throws(() => loadConfig({ LLM_TIMEOUT_MS: "0" }), /LLM_TIMEOUT_MS/);
   assert.equal(loadConfig({ PORT: "8080" }).port, 8080);

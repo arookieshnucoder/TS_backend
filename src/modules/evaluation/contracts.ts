@@ -50,9 +50,9 @@ export interface EvalReport {
         inputUsdPerMillion: number | null; outputUsdPerMillion: number | null; };
     scopeNote: string; summary: { passRate: Rate; taskPassRate: Rate | null; controlPassRate: Rate | null;
         dimensions: Record<string, { value: number | null; applicableTrials: number }>;
-        latencyMs: { p50: number; p95: number; max: number }; averages: Record<string, number | null>;
+        latencyMs: { p50: number; p95: number; p99?: number; max: number }; averages: Record<string, number | null>;
         failureCounts: Record<string, number>; recommendations: string[]; };
     cases: CaseSummary[]; trials: Trial[];
-    comparison?: { baselineRunId: string; passRateDelta: number; p95DeltaMs: number; dimensionDeltas: Record<string, number | null>; regressions: string[]; improvements: string[] };
+    comparison?: { baselineRunId: string; passRateDelta: number; p95DeltaMs: number; p99DeltaMs?: number; dimensionDeltas: Record<string, number | null>; regressions: string[]; improvements: string[] };
     gate: { passed: boolean; reasons: string[] };
 }

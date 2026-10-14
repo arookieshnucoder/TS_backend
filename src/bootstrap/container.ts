@@ -49,7 +49,7 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
         [config.llmApiKey, config.llmFallback?.apiKey, config.mcp.adminToken], config.observability.maxEvents) : undefined);
     let agentHarness = overrides.agentHarness;
     if (!agentHarness) {
-        const model = overrides.agentModel ?? (config.llmModel === "glm-4.7" ? new GlmModel(provider, config.math.thinking) : new LangChainChatModel(provider, errors));
+        const model = overrides.agentModel ?? (/^glm-/i.test(config.llmModel) ? new GlmModel(provider, config.math.thinking) : new LangChainChatModel(provider, errors));
         let fallbackModels = overrides.fallbackModels ?? [];
         if (overrides.fallbackModels === undefined && overrides.agentModel === undefined && config.llmFallback) {
             fallbackModels = [{ name: config.llmFallback.model, model: new LangChainChatModel({ ...provider,

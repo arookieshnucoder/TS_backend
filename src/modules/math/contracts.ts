@@ -1,14 +1,23 @@
-export type MathVariant = "baseline" | "agent" | "harness" | "combined";
+export type MathVariant = "baseline" | "agent" | "harness" | "combined" | "lexical" | "rerank" | "memory" | "batch" | "adaptive";
 export const MATH_VARIANTS: MathVariant[] = ["baseline", "agent", "harness", "combined"];
+/** Existing combined architecture plus five individually selectable experiments. */
+export const MATH_EXPERIMENTS: MathVariant[] = ["combined", "lexical", "rerank", "memory", "batch", "adaptive"];
+export const ALL_MATH_VARIANTS = [...new Set([...MATH_VARIANTS, ...MATH_EXPERIMENTS])];
 export interface MathQuestion {
     id: string;
     question: string;
     options: string[];
     answer: string;
     topic: string;
-    source: { url: string; dataset: string; row: number; sha256: string };
+    source: { url: string; dataset: string; row: number; sha256: string; kind?: "authored" };
     solution?: string;
-    solutionOrigin?: "glm-4.7";
+    solutionOrigin?: "glm-4.7" | "authored-formula";
+    grade?: 9;
+    family?: string;
+    difficulty?: "standard" | "long-hard";
+    skills?: string[];
+    /** Grader-only labels. Never passed to runtime retrieval or model prompts. */
+    relevantIds?: string[];
     textAudit?: { originalQuestion: string; evidenceUrl: string; page: number; reason: string };
 }
 export interface MathCorpus {

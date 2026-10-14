@@ -8,6 +8,7 @@ import { loadEnvironment } from "./environment.js";
 import { loadContextConfig, type ContextConfig } from "../modules/harness/context/config.js";
 import { loadHarnessConfig, type HarnessConfig } from "../modules/harness/config.js";
 import type { MathVariant } from "../modules/math/contracts.js";
+import { ALL_MATH_VARIANTS } from "../modules/math/contracts.js";
 
 
 /**
@@ -59,8 +60,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
     if (nodeEnv !== "development" && nodeEnv !== "test" && nodeEnv !== "production") {
         throw new Error("NODE_ENV must be development, test or production");
     }
-    const mathVariant = env.MATH_AGENT_VARIANT ?? (nodeEnv === "test" ? "general" : "combined");
-    if (!["general", "baseline", "agent", "harness", "combined"].includes(mathVariant)) throw new Error("Invalid MATH_AGENT_VARIANT");
+    // 数学代理变体，默认为 general 或 adaptive
+    const mathVariant = env.MATH_AGENT_VARIANT ?? (nodeEnv === "test" ? "general" : "adaptive");
+    if (!["general", ...ALL_MATH_VARIANTS].includes(mathVariant)) throw new Error("Invalid MATH_AGENT_VARIANT");
     const thinking = env.GLM_THINKING ?? "disabled";
     if (!["enabled", "disabled"].includes(thinking)) throw new Error("Invalid GLM_THINKING");
     const mathEmbeddingUrl = env.MATH_EMBEDDING_BASE_URL ?? "https://open.bigmodel.cn/api/paas/v4";
@@ -100,6 +102,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
         port, frontendOrigin, nodeEnv, shutdownTimeoutMs: 5000, context: loadContextConfig(env), harness: loadHarnessConfig(env),
         sessionDataDir,
         llmApiKey: env.LLM_API_KEY,
-        llmModel: env.LLM_MODEL ?? (mathVariant === "general" ? "deepseek-flash" : "glm-4.7"), llmBaseUrl, llmTimeoutMs
+        llmModel: env.LLM_MODEL ?? (mathVariant === "general" ? "deepseek-flash" : "glm-4.6v"), llmBaseUrl, llmTimeoutMs
     };
 }

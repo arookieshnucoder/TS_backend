@@ -17,6 +17,9 @@ export class HarnessRuntime implements AgentRuntime {
     private final = false;
     private readonly requestedIds = new Set<string>();
     private readonly executedIds = new Set<string>();
+    private initialRounds: ToolRound[]=[];
+    setInitialRounds(rounds:ToolRound[]){this.initialRounds=rounds;}
+    get executedToolCount(){return this.toolCalls;}
     constructor(private readonly model: AgentModel, private readonly builder: ContextBuilder, private readonly registry: ToolRegistry,
         readonly maxToolSteps: number, private readonly maxCallsPerBatch: number, private readonly maxInputTokens: number,
         readonly event: (name: string, fields?: Record<string, unknown>) => void, private readonly signal?: AbortSignal) {}
@@ -26,7 +29,7 @@ export class HarnessRuntime implements AgentRuntime {
         const scope = this.scope(operation); scope?.throwIfAborted();
         if (!final && this.modelTurns >= this.maxToolSteps) reject("TOOLS_DISABLED", "Research budget exhausted; prepare the final turn explicitly");
         this.final = final;
-        return abortable(() => this.builder.build(rounds, this.final ? [] : this.tools, this.final, scope), scope);
+        return abortable(() => this.builder.build([...this.initialRounds,...rounds], this.final ? [] : this.tools, this.final, scope), scope);
     }
     private validateCalls(calls: ToolCall[], allowed: ToolDefinition[], ids: Set<string>) {
         if (!Array.isArray(calls) || calls.length > this.maxCallsPerBatch) reject("TOOL_BATCH_LIMIT", "Agent tool step limit exceeded");
@@ -64,7 +67,13 @@ export class HarnessRuntime implements AgentRuntime {
         snapshot.forEach(call => this.executedIds.add(call.id));
         this.toolCalls += snapshot.length;
         const results: AgentMessage[] = [];
-        for (const call of snapshot) results.push(await this.registry.execute(call, scope));
+        for (let i=0;i<snapshot.length;) {
+            const call=snapshot[i]!;
+            if(!this.registry.parallelSafe(call.name)){results.push(await this.registry.execute(call,scope));i++;continue;}
+            const group:ToolCall[]=[];
+            while(i<snapshot.length&&this.registry.parallelSafe(snapshot[i]!.name))group.push(snapshot[i++]!);
+            results.push(...await Promise.all(group.map(c=>this.registry.execute(c,scope))));
+        }
         return results;
     }
     async execute(call: ToolCall, operation?: AbortSignal): Promise<AgentMessage> { return (await this.executeBatch([call], operation))[0]!; }

@@ -18,7 +18,10 @@
     "dev": "tsx watch src/server.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "math:expand": "tsx scripts/expand-math.ts",
+    "eval:math:optimization": "tsx scripts/evaluate-math-optimization.ts",
+    "eval:math:study": "tsx scripts/run-math-study.ts"
   },
   "keywords": [],
   "author": "",

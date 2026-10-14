@@ -11,7 +11,7 @@ export function validateCorpus(value: unknown): MathCorpus {
         for (const q of questions) {
             if (typeof q.id !== "string" || ids.has(q.id) || typeof q.question !== "string" || !q.question.trim() || !Array.isArray(q.options) || q.options.length !== 4 ||
                 q.options.some(o => typeof o !== "string" || !o.trim()) || !/^[ABCD]$/.test(q.answer) || !q.topic?.trim() ||
-                !q.source?.url?.startsWith("https://") || !Number.isInteger(q.source.row) || !/^[a-f0-9]{64}$/.test(q.source.sha256)) throw new Error("Invalid or duplicate math question");
+                !(q.source?.url?.startsWith("https://") || (q.source?.kind === "authored" && q.source.url.startsWith("urn:tspj:"))) || !Number.isInteger(q.source.row) || !/^[a-f0-9]{64}$/.test(q.source.sha256)) throw new Error("Invalid or duplicate math question");
             ids.add(q.id);
             const stem = normalizeMath(q.question).replace(/[（()）_\s]/g, "");
             if (stems.has(stem) && stems.get(stem) !== split) throw new Error("Knowledge/evaluation question leakage");

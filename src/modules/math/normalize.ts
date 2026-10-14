@@ -15,6 +15,14 @@ export function tokens(text: string): string[] {
     const words = value.match(/[a-z]+|\d+(?:\.\d+)?|[+\-*/=<>≤≥^]|[\p{Script=Han}]+/gu) ?? [];
     return words.flatMap(word => /\p{Script=Han}/u.test(word) ? [...word, ...Array.from({ length: Math.max(0, word.length - 1) }, (_, i) => word.slice(i, i + 2))] : [word]);
 }
+/** Normalize question labels only; mathematical quantities written in Chinese are untouched. */
+export function normalizeQuestionLabels(text:string):string {
+    const digits:Record<string,number>={零:0,一:1,二:2,三:3,四:4,五:5,六:6,七:7,八:8,九:9};
+    return text.replace(/([第题]\s*)([零一二三四五六七八九十]{1,3})(\s*(?:题|[：:]))/g,(whole,prefix:string,num:string,suffix:string)=>{
+        const parts=num.split("十"),value=parts.length===1?digits[num]:parts.length===2?(parts[0]?digits[parts[0]]:1)*10+(parts[1]?digits[parts[1]]:0):undefined;
+        return value===undefined||!Number.isInteger(value)||value<1||value>99?whole:`${prefix}${value}${suffix}`;
+    });
+}
 const concepts: [string, RegExp, string][] = [
     ["quadratic", /二次|抛物线|x\^\{?2\}?/, "一元二次方程 二次函数 判别式 配方 韦达定理 顶点 对称轴"],
     ["fraction", /分式|\\frac|分母/, "分式 有意义 分母不为零 通分 约分 增根"],

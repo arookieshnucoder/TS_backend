@@ -52,7 +52,7 @@ export function summarize(trials: Trial[]): Pick<EvalReport, "summary" | "cases"
     if (trials.some(t => t.outcome === "environment_error")) recommendations.push("先修复评测环境；环境失败不可作为正确拒绝计分。");
     if (!recommendations.length) recommendations.push("控制集已饱和：扩充真实任务、长链路和提示注入案例，补充独立人工标注后再评估模型能力。");
     return { cases, summary: { passRate: rate(trials.filter(t => t.grade.passed).length, trials.length), taskPassRate: subgroup("task"), controlPassRate: subgroup("control"), dimensions,
-        latencyMs: { p50: percentile(trials.map(t => t.metrics.durationMs), .5), p95: percentile(trials.map(t => t.metrics.durationMs), .95), max: Math.max(...trials.map(t => t.metrics.durationMs)) }, averages, failureCounts, recommendations } };
+        latencyMs: { p50: percentile(trials.map(t => t.metrics.durationMs), .5), p95: percentile(trials.map(t => t.metrics.durationMs), .95), p99:percentile(trials.map(t=>t.metrics.durationMs),.99), max: Math.max(...trials.map(t => t.metrics.durationMs)) }, averages, failureCounts, recommendations } };
 }
 export function assertComparable(candidate: Pick<EvalReport, "provenance"> & { cases: Pick<CaseSummary, "id">[] }, baseline: EvalReport): void {
     if (baseline.version !== 1 || !Array.isArray(baseline.cases) || !baseline.cases.length || !baseline.provenance || !baseline.summary ||
@@ -74,5 +74,6 @@ export function compare(candidate: EvalReport, baseline: EvalReport): NonNullabl
     }
     return { baselineRunId: baseline.runId, passRateDelta: candidate.summary.passRate.value - baseline.summary.passRate.value,
         p95DeltaMs: candidate.summary.latencyMs.p95 - baseline.summary.latencyMs.p95, dimensionDeltas,
+        ...(candidate.summary.latencyMs.p99!==undefined&&baseline.summary.latencyMs.p99!==undefined?{p99DeltaMs:candidate.summary.latencyMs.p99-baseline.summary.latencyMs.p99}:{}),
         regressions: changes.filter(c => c.delta < 0).map(c => c.id), improvements: changes.filter(c => c.delta > 0).map(c => c.id) };
 }

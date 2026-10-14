@@ -10,7 +10,7 @@ export function markdown(report: EvalReport): string {
     const rows = report.cases.map(c => `| ${cell(c.id)} | ${cell(c.kind)} | ${c.passRate.successes}/${c.passRate.total} | ${percent(c.passRate.value)} | ${percent(c.passAtK[3])} | ${percent(c.passPowerK[3])} | ${cell(Object.keys(c.failures).join(", ") || "—")} |`).join("\n");
     return `# Agent + Harness 评测报告\n\n${report.scopeNote}\n\n模式 **${p.mode}**；配置 **${p.profile}**；对照 **${p.variant}**。Git ${p.revision}（dirty=${p.dirty}），数据集 ${p.datasetId}，每题 ${p.repeats} 次，seed=${p.seed}。\n\n` +
         `通过 ${s.passRate.successes}/${s.passRate.total}（${percent(s.passRate.value)}），Wilson 95% 区间 ${percent(s.passRate.wilson95[0])}–${percent(s.passRate.wilson95[1])}。任务通过 ${percent(s.taskPassRate?.value)}，控制通过 ${percent(s.controlPassRate?.value)}。\n\n` +
-        `延迟 p50=${s.latencyMs.p50.toFixed(1)} ms，p95=${s.latencyMs.p95.toFixed(1)} ms。包含 fixture 建立，不含清理；离线数字不是生产模型延迟。\n\n` +
+        `延迟 p50=${s.latencyMs.p50.toFixed(1)} ms，p95=${s.latencyMs.p95.toFixed(1)} ms，p99=${s.latencyMs.p99?.toFixed(1) ?? "N/A"} ms。包含 fixture 建立，不含清理；离线数字不是生产模型延迟。\n\n` +
         `| 维度 | 均值 | 适用试验数 |\n| --- | --- | --- |\n${Object.entries(s.dimensions).map(([key, v]) => `| ${key} | ${percent(v.value)} | ${v.applicableTrials} |`).join("\n")}\n\n` +
         `| 资源指标 | 均值 |\n| --- | --- |\n${Object.entries(s.averages).map(([key, v]) => `| ${key} | ${v === null ? "N/A" : v.toFixed(key === "costUsd" ? 8 : 2)} |`).join("\n")}\n\n` +
         `| 案例 | 类别 | 通过/总数 | 通过率 | pass@3 | pass^3 | 失败原因 |\n| --- | --- | --- | --- | --- | --- | --- |\n${rows}\n\n` +

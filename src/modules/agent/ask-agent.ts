@@ -20,7 +20,7 @@ export class AskAgent implements AgentWorkflow {
             if (!turn.toolCalls.length) {
                 return { content: turn.content, modelTurns: step + 1, toolCalls };
             }
-            const round: ToolRound = { assistant: { role: "assistant", content: turn.content, toolCalls: turn.toolCalls },
+            const round: ToolRound = { assistant: { role: "assistant", content: turn.content, toolCalls: turn.toolCalls, ...(turn.reasoningContent?{reasoningContent:turn.reasoningContent}:{}) },
                 results: await runtime.executeBatch(turn.toolCalls, signal) };
             toolCalls += round.results.length;
             // 记录每个回合的执行结果，包括工具调用的输出和状态，准备进入下一轮。

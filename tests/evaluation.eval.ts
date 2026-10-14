@@ -30,6 +30,7 @@ test("statistical metrics use finite-sample reliability, Wilson intervals and ne
     assert.deepEqual(reliability(4, 0, 3), { passAtK: 0, passPowerK: 0 });
     const all = rate(10, 10); assert.ok(all.wilson95[0] < 1); assert.ok(all.wilson95[0] > .7);
     assert.equal(percentile(Array.from({ length: 20 }, (_, i) => i + 1), .95), 19);
+    assert.equal(percentile(Array.from({ length: 200 }, (_, i) => i + 1), .99),198);
     assert.throws(() => reliability(3, 2, 4)); assert.throws(() => rate(2, 0));
 });
 

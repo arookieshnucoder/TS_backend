@@ -9,11 +9,11 @@ import { extractMathAnswer, evaluateMath, permuteQuestion } from "../src/modules
 import { examples, fixture, question } from "./math-fixtures.js";
 
 // Dataset snapshots and evaluation-platform checks run only via npm run test:eval.
-test("corpus is 100/12/30, source attributed, and excludes corrupted statements", async () => {
+test("grade9 corpus is 500/23/77 with ten percent long hard questions and authored attribution", async () => {
     const c = await loadCorpus("evals/math/corpus.json");
-    assert.deepEqual([c.knowledge.length, c.development.length, c.test.length], [100, 12, 30]);
-    assert.equal(c.excluded.length, 6);
-    assert.ok(c.knowledge.every(q => q.source.dataset.includes("MathBench")));
+    assert.deepEqual([c.knowledge.length, c.development.length, c.test.length], [500, 23, 77]);
+    assert.equal(c.knowledge.filter(q=>q.difficulty==="long-hard").length,50);
+    assert.ok(c.knowledge.every(q => q.source.kind==="authored"&&q.grade===9));
 });
 
 test("grader reads the explicit final conclusion and rejects conflicting answers and letters in reasoning", () => {

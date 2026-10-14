@@ -11,9 +11,12 @@ export class TokenBudget {
     }
     count(text: string): number {
         // Bound tokenizer work on adversarial long runs; boundary splits conservatively overcount.
-        const chars = Array.from(text);
         let count = 0;
-        for (let i = 0; i < chars.length; i += 512) count += this.encoding.encode(chars.slice(i, i + 512).join("")).length;
+        for (let i=0;i<text.length;) {
+            let end=Math.min(i+512,text.length);
+            if(end<text.length&&text.charCodeAt(end-1)>=0xd800&&text.charCodeAt(end-1)<=0xdbff)end--;
+            count+=this.encoding.encode(text.slice(i,end)).length;i=end;
+        }
         return Math.ceil(count * this.config.tokenSafetyFactor);
     }
     truncate(text: string, budget: number): string {
