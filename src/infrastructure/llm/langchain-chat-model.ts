@@ -1,6 +1,7 @@
 import { errorContainer, type ErrorContainer } from "../../common/errors/error-container.js";
 import { ChatOpenAI } from "@langchain/openai";
 import type { AgentModel, LlmConfig } from "../../modules/agent/model.js";
+import { ModelProtocolError } from "../../modules/agent/model.js";
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import type { AgentMessage, ToolDefinition } from "../../modules/agent/contracts.js";
 
@@ -30,7 +31,7 @@ export class LangChainChatModel implements AgentModel {
         const model = this.model(maxOutputTokens);
         const runnable = tools.length ? model.bindTools(tools.map(tool => ({ type: "function" as const, function: tool }))) : model;
         const response = await runnable.invoke(input, { signal });
-        if (response.invalid_tool_calls?.length) throw new Error("Invalid model tool call");
+        if (response.invalid_tool_calls?.length) throw new ModelProtocolError("INVALID_TOOL_CALLS");
         return {
             ...(response.usage_metadata && Number.isSafeInteger(response.usage_metadata.input_tokens) && response.usage_metadata.input_tokens >= 0 &&
                 Number.isSafeInteger(response.usage_metadata.output_tokens) && response.usage_metadata.output_tokens >= 0 ? {

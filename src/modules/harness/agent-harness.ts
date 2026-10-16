@@ -1,5 +1,5 @@
 import type { AgentModel } from "../agent/model.js";
-import type { AgentInstructions, AgentMessage, AgentResult, AgentWorkflow, ToolCall, ToolRound } from "../agent/contracts.js";
+import type { AgentInstructions, AgentMessage, AgentResult, AgentWorkflow, ToolCall } from "../agent/contracts.js";
 import type { Logger } from "../../common/logging/logger.js";
 import type { ContextConfig } from "./context/config.js";
 import { TokenBudget } from "./context/tokens.js";
@@ -13,8 +13,8 @@ import { redact } from "../../common/logging/redaction.js";
 import { selectTools } from "./tool-selection.js";
 import { HarnessRuntime, HarnessPolicyError } from "./runtime.js";
 import type { TextCompressor } from "./context/contracts.js";
-import { historyEvidence, historyEvidenceTool } from "./history-evidence.js";
-import { normalizeQuestionLabels } from "../math/normalize.js";
+import { prepareRun } from "./run-preparation.js";
+import { toolDiscovery } from "./tool-discovery.js";
 
 export interface HarnessOptions {
     recovery?: Partial<RecoveryPolicy>;
@@ -22,6 +22,10 @@ export interface HarnessOptions {
     maxCallsPerStep?: number;
     toolTimeoutMs?: number;
     toolOutputTokens?: number;
+    /** 本轮协议纠错总数，0 保留原来的严格失败行为；不重放工具。 */
+    maxProtocolRepairs?: number;
+    /** 初始 MCP 目录与每次发现的上限，原生业务工具不被裁掉。 */
+    maxMcpTools?: number;
 }
 export interface HarnessToolContext { compression: TextCompressor; }
 export type HarnessToolFactory = (context: HarnessToolContext, signal?: AbortSignal) => Promise<RegisteredTool[]>;
@@ -53,9 +57,13 @@ export class AgentHarness implements HarnessRunner {
         if (typeof model?.turn !== "function") throw new TypeError("AgentModel must implement turn");
         if (typeof workflow?.run !== "function") throw new TypeError("AgentWorkflow must implement run");
         if (Object.hasOwn(options, "fallbackModels") && !Array.isArray(options.fallbackModels)) throw new TypeError("fallbackModels must be an array");
-        const { fallbackModels = [], maxCallsPerStep = 4, toolTimeoutMs = 15000, toolOutputTokens = 2048 } = options;
+        const { fallbackModels = [], maxCallsPerStep = 4, toolTimeoutMs = 15000, toolOutputTokens = 2048, maxProtocolRepairs = 0, maxMcpTools = 64 } = options;
         if (fallbackModels.some(m => !m.name.trim() || m.name.length > 100 || typeof m.model?.turn !== "function")) throw new TypeError("Invalid fallback model");
-        this.options = { fallbackModels: fallbackModels.map(({ name, model }) => ({ name, model })), maxCallsPerStep, toolTimeoutMs, toolOutputTokens };
+        for (const [name, value, min, max] of [["maxCallsPerStep", maxCallsPerStep, 1, 8], ["toolTimeoutMs", toolTimeoutMs, 1, 120000],
+            ["toolOutputTokens", toolOutputTokens, 128, 8192], ["maxProtocolRepairs", maxProtocolRepairs, 0, 3], ["maxMcpTools", maxMcpTools, 1, 64]] as const) {
+            if (!Number.isInteger(value) || value < min || value > max) throw new TypeError(`Invalid harness ${name}`);
+        }
+        this.options = { fallbackModels: fallbackModels.map(({ name, model }) => ({ name, model })), maxCallsPerStep, toolTimeoutMs, toolOutputTokens, maxProtocolRepairs, maxMcpTools };
         this.tokens = new TokenBudget(config);
         this.recovery = recoveryPolicy(options.recovery);
     }
@@ -74,37 +82,31 @@ export class AgentHarness implements HarnessRunner {
                 const model = new RecoveringModel(this.model, this.options.fallbackModels, this.recovery, event);
                 const compression = new ContextCompressor(model, this.tokens, this.config);
                 const supplied = typeof input.tools === "function" ? await input.tools({ compression }, signal) : input.tools;
-                const tools = input.history.length&&!supplied.some(t=>t.definition.name==="history_lookup")?[...supplied,historyEvidenceTool(input.history,Math.min(5000,Math.floor(this.config.maxInputTokens*.10)))]:supplied;
                 signal?.throwIfAborted();
-                let oversizedHistory=false;
-                if(input.historyPolicy===undefined){let size=0;for(const message of input.history){size+=this.tokens.count(message.content);if(size>this.config.maxInputTokens*.35){oversizedHistory=true;break;}}}
-                const useEvidence=input.historyPolicy==="evidence" || oversizedHistory;
-                const evidence=useEvidence?historyEvidence(input.history,input.question,Math.min(9000,Math.floor(this.config.maxInputTokens*.25))):undefined;
-                if(evidence)event("context.evidence_selected",{retained:evidence.indices,omitted:evidence.omitted});
-                const prefetchHistory=input.proactiveTools!==false&&input.history.length>0&&/之前|前面|刚才|上题|第\d+题|更正|earlier|previous/i.test(normalizeQuestionLabels(input.question))&&tools.some(t=>t.definition.name==="history_lookup");
-                // The tool supplies verbatim evidence; duplicating it in prompt memory can trigger lossy compression again.
-                const builder = new ContextBuilder(evidence&&prefetchHistory?[]:evidence?.messages??input.history.map(({role,content})=>({role,content})), input.question, this.config,
+                const { tools, history, prefetchHistory } = prepareRun(input, supplied, this.config, this.tokens, event);
+                const builder = new ContextBuilder(history, input.question, this.config,
                     this.tokens, compression, event, this.instructions);
                 const registry = new ToolRegistry(this.tokens, this.options.toolOutputTokens, this.options.toolTimeoutMs, event, this.recovery);
-                const selection = selectTools(tools, input.question, this.instructions, this.config, this.tokens);
+                // 发现工具自身也占上下文预算；有 MCP 时先把定义纳入筛选的固定开销。
+                if (tools.some(tool => tool.source?.type === "mcp") && !tools.some(tool => tool.definition.name === "tool_search")) {
+                    tools.push(toolDiscovery(tools, registry, this.instructions, this.config, this.tokens, this.options.maxMcpTools, input.question));
+                }
+                const selection = selectTools(tools, input.question, this.instructions, this.config, this.tokens, { limit: this.options.maxMcpTools });
                 for (const tool of selection.tools) registry.register(tool);
                 if (selection.omitted) event("agent.tools.selected", { included: selection.tools.length, omittedMcpTools: selection.omitted, mcpBudgetTokens: selection.budgetTokens, reason: "context_budget" });
                 const runtime = new HarnessRuntime(model, builder, registry, this.config.maxToolSteps, this.options.maxCallsPerStep,
-                    this.config.maxInputTokens, event, signal);
+                    this.config.maxInputTokens, event, signal, this.options.maxProtocolRepairs);
                 // Acquire historical facts before the first model turn, avoiding lengthy unguided reasoning.
-                const initial:ToolRound[]=[];
-                if(prefetchHistory&&runtime.tools.some(t=>t.name==="history_lookup")) {
-                    const call={id:"harness-history-1",name:"history_lookup",arguments:{query:input.question}};
-                    initial.push({assistant:{role:"assistant",content:"检索历史原文和最新条件。",toolCalls:[call]},results:[await runtime.execute(call,signal)]});
+                if (prefetchHistory && runtime.tools.some(tool => tool.name === "history_lookup")) {
+                    await runtime.prefetch([{ id: "harness-history-1", name: "history_lookup", arguments: { query: input.question } }], "检索历史原文和最新条件。", signal);
                 }
-                if(input.initialCalls?.length)initial.push({assistant:{role:"assistant",content:"先获取题目证据和条件检查。",toolCalls:input.initialCalls},results:await runtime.executeBatch(input.initialCalls,signal)});
-                if(input.proactiveTools!==false&&!input.initialCalls?.length&&input.question.length>1000&&/方程|抛物线|三角形|概率|x[²^]/.test(input.question)&&runtime.tools.some(t=>t.name==="math_analyze")) {
-                    const call={id:"harness-analyze-1",name:"math_analyze",arguments:{query:input.question}};
-                    initial.push({assistant:{role:"assistant",content:"先提取长问题的条件和可执行检查。",toolCalls:[call]},results:[await runtime.execute(call,signal)]});
+                if (input.initialCalls?.length) await runtime.prefetch(input.initialCalls, "先获取题目证据和条件检查。", signal);
+                if (input.proactiveTools !== false && !input.initialCalls?.length && input.question.length > 1000 &&
+                    /方程|抛物线|三角形|概率|x[²^]/.test(input.question) && runtime.tools.some(tool => tool.name === "math_analyze")) {
+                    await runtime.prefetch([{ id: "harness-analyze-1", name: "math_analyze", arguments: { query: input.question } }], "先提取长问题的条件和可执行检查。", signal);
                 }
-                runtime.setInitialRounds(initial);
                 const returned = await this.workflow.run(runtime, signal);
-                const result={...returned,toolCalls:runtime.executedToolCount};
+                const result = { ...returned, modelTurns: runtime.modelInvocationCount, toolCalls: runtime.executedToolCount };
                 event("agent.completed", { modelTurns: result.modelTurns, toolCalls: result.toolCalls, durationMs: Date.now() - started });
                 return result;
             }, signal);

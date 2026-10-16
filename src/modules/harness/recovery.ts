@@ -82,9 +82,10 @@ export class RecoveringModel implements AgentModel {
                     try {
                         const result = await abortable(() => selected.model.turn(structuredClone(messages), structuredClone(tools), scope, maxOutputTokens), scope);
                         scope.throwIfAborted();
-                        this.event("agent.model.completed", { modelCallId, model: selected.name, attempt, durationMs: Date.now() - started, toolCalls: result.toolCalls.length,
+                        const calls = Array.isArray(result?.toolCalls) ? result.toolCalls : [];
+                        this.event("agent.model.completed", { modelCallId, model: selected.name, attempt, durationMs: Date.now() - started, toolCalls: calls.length,
                             ...(result.usage ? { usage: result.usage } : {}),
-                            calls: result.toolCalls.map(call => ({ id: call.id, name: call.name, arguments: call.arguments })) });
+                            calls: calls.filter(call => call != null).map(call => ({ id: call.id, name: call.name, arguments: call.arguments })) });
                         return result;
                     } catch (error) {
                         this.event("agent.model.failed", { modelCallId, model: selected.name, attempt, durationMs: Date.now() - started, code: failureCode(error), cancelled: signal?.aborted ?? false });

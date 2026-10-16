@@ -15,9 +15,12 @@ import { RunTraceStore } from "../modules/observability/run-trace.js";
 import { createMathChatAgent } from "./math-chat-agent.js";
 import { GlmModel } from "../infrastructure/llm/glm-model.js";
 import type { MathOcrProvider } from "../modules/math/contracts.js";
+import { ReadingLibrary } from "../modules/reading/library.js";
+import { createReadingChatAgent, routeSchoolSubject } from "./reading-chat-agent.js";
 
 
 export interface AppDependencies {
+    readingLibrary?: ReadingLibrary;
     mathOcr?: MathOcrProvider;
     runs?: RunTraceStore;
     mcp: McpManager;
@@ -30,8 +33,13 @@ export interface AppDependencies {
 
 export type DependencyOverrides = Partial<AppDependencies> & { agentModel?: AgentModel; fallbackModels?: NamedAgentModel[] };
 
+/** 主模型与备用模型采用同一供应商选择规则，GLM 不会在降级时丢失推理协议字段。 */
+function createModel(provider: LlmConfig, config: AppConfig, errors: ErrorContainer): AgentModel {
+    return /^glm-/i.test(provider.llmModel) ? new GlmModel(provider, config.math.thinking) : new LangChainChatModel(provider, errors);
+}
+
 export function createDependencies(overrides: DependencyOverrides = {}, config: AppConfig = loadConfig()): AppDependencies {
-    const allowed = new Set(["errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "mcp", "fallbackModels", "runs", "mathOcr"]);
+    const allowed = new Set(["errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "mcp", "fallbackModels", "runs", "mathOcr", "readingLibrary"]);
     for (const key of Object.keys(overrides)) {
         if (!allowed.has(key)) throw new TypeError(`Unsupported dependency override: ${key}`);
         if (overrides[key as keyof DependencyOverrides] == null) throw new TypeError(`Dependency override ${key} must not be null or undefined`);
@@ -47,22 +55,36 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
     const mcp = overrides.mcp ?? new McpManager(config.mcp.configFile, log, undefined, config.mcp.timeoutMs);
     const runs = overrides.runs ?? (config.observability.enabled ? new RunTraceStore(config.observability.dataDir, log,
         [config.llmApiKey, config.llmFallback?.apiKey, config.mcp.adminToken], config.observability.maxEvents) : undefined);
+    const readingLibrary = overrides.readingLibrary ?? new ReadingLibrary(config.reading.corpusPath);
     let agentHarness = overrides.agentHarness;
     if (!agentHarness) {
-        const model = overrides.agentModel ?? (/^glm-/i.test(config.llmModel) ? new GlmModel(provider, config.math.thinking) : new LangChainChatModel(provider, errors));
+        const model = overrides.agentModel ?? createModel(provider, config, errors);
         let fallbackModels = overrides.fallbackModels ?? [];
         if (overrides.fallbackModels === undefined && overrides.agentModel === undefined && config.llmFallback) {
-            fallbackModels = [{ name: config.llmFallback.model, model: new LangChainChatModel({ ...provider,
-                llmModel: config.llmFallback.model, llmBaseUrl: config.llmFallback.baseUrl, llmApiKey: config.llmFallback.apiKey }, errors) }];
+            fallbackModels = [{ name: config.llmFallback.model, model: createModel({ ...provider,
+                llmModel: config.llmFallback.model, llmBaseUrl: config.llmFallback.baseUrl, llmApiKey: config.llmFallback.apiKey }, config, errors) }];
         }
-        agentHarness = config.math.variant !== "general" ? createMathChatAgent(model, config, log) : createChatAgent(repository, model,
+        const harnessOptions = { ...config.harness, fallbackModels };
+        const createBaseAgent = () => config.math.variant !== "general" ? createMathChatAgent(model, config, log, harnessOptions) : createChatAgent(repository, model,
             () => config.context.elasticsearchUrl ? new ElasticsearchMemorySearch(new TokenBudget(config.context), config.context) :
                 new LocalMemorySearch(new TokenBudget(config.context)), config.context, log,
-            { ...config.harness, fallbackModels,
+            { ...harnessOptions,
                 excludedPaths: [config.sessionDataDir, config.observability.dataDir, config.mcp.configFile],
                 additionalTools: (_session, signal, context) => mcp.tools(signal, context?.event) });
+        if (config.schoolSubject === "math") agentHarness = createBaseAgent();
+        else {
+            const reading = createReadingChatAgent(model, config, log, readingLibrary, harnessOptions);
+            let base: ChatAgent | undefined;
+            const select = (content: string, history: readonly { role: string; content: string }[]) =>
+                config.schoolSubject === "chinese" || routeSchoolSubject(content, history) === "chinese" ? reading : base ??= createBaseAgent();
+            agentHarness = {
+                run: (session, current, signal, context) => select(current.content, session.messages).run(session, current, signal, context),
+                titleFor: (session, signal) => select([...session.messages].reverse().find(message => message.role === "user")?.content ?? "", session.messages).titleFor(session, signal),
+            };
+        }
     }
     return {
+        readingLibrary,
         mathOcr: overrides.mathOcr,
         runs,
         mcp,

@@ -143,7 +143,7 @@ test("agent invokes tools, compacts long histories, preserves storage, and freez
   const s = await service.create("新对话", "req-test");
   for (let i = 0; i < 6; i++) {
     const result = await service.send(s.id, i < 2 ? "历史信息 ".repeat(180) : "下一轮");
-    assert.equal(result.sessionStatus, "finished");
+    assert.equal(result.sessionStatus, "finished", result.sessionError?.message);
     if (i === 4) service = new ChatSessionService(repository, harness);
   }
   assert.equal(titleCalls, 5);

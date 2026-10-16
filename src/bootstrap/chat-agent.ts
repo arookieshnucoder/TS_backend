@@ -14,6 +14,7 @@ import { createMemoryTools } from "../modules/chat/service/memory-tools.js";
 import { createWorkspaceTools } from "../modules/harness/workspace-tools.js";
 import { abortable } from "../modules/harness/cancellation.js";
 import { mathAnalyzeTool, mathCalculateTool } from "../modules/math/task-tools.js";
+import { taskPlanTool } from "../modules/harness/task-tools.js";
 
 export interface ChatAgentOptions extends HarnessOptions {
     additionalTools?: ChatToolFactory;
@@ -36,7 +37,7 @@ export interface ChatAgentOptions extends HarnessOptions {
  */
 export function createChatAgent(repository: ChatSessionRepository, model: AgentModel,
     searchFactory: () => MemorySearch, config: ContextConfig, logger: Logger, options: ChatAgentOptions = {}) {
-    const allowed = new Set(["workspaceRoot", "excludedPaths", "maxCallsPerStep", "toolTimeoutMs", "toolOutputTokens", "profile", "tools", "title", "additionalTools", "recovery", "fallbackModels"]);
+    const allowed = new Set(["workspaceRoot", "excludedPaths", "maxCallsPerStep", "toolTimeoutMs", "toolOutputTokens", "profile", "tools", "title", "additionalTools", "recovery", "fallbackModels", "maxProtocolRepairs", "maxMcpTools"]);
     for (const key of Object.keys(options)) {
         if (!allowed.has(key)) throw new TypeError(`Unsupported chat agent option: ${key}`);
     }
@@ -64,7 +65,11 @@ export function createChatAgent(repository: ChatSessionRepository, model: AgentM
     });
     return new HarnessChatAgent(harness, async (session, signal, context, runtime) => {
         const [custom, extra] = await Promise.all([toolFactory(session, signal, context, runtime), options.additionalTools?.(session, signal, context, runtime) ?? []]);
-        return [...custom, ...extra, ...(options.tools?[]:[mathAnalyzeTool(),mathCalculateTool()].filter(t=>![...custom,...extra].some(existing=>existing.definition.name===t.definition.name)))];
+        const supplied = [...custom, ...extra];
+        const names = new Set(supplied.map(tool => tool.definition.name));
+        // 显式工具集合保持调用方契约；默认补充工具只在未被业务工具覆盖时注册一次。
+        const defaults = options.tools ? [] : [mathAnalyzeTool(), mathCalculateTool(), taskPlanTool()];
+        return [...supplied, ...defaults.filter(tool => !names.has(tool.definition.name))];
     }, options.title ?? (async (session, signal) => {
         try { return await abortable(() => title.execute(session, signal), signal); }
         catch {

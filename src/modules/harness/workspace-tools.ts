@@ -1,5 +1,5 @@
 import { lstat, open, opendir, realpath } from "node:fs/promises";
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, matchesGlob, relative, resolve, sep } from "node:path";
 import { ToolAccessError, ToolInputError, type RegisteredTool } from "./tool-contracts.js";
 import { defineReadOnlyTool, integerParameter, stringParameter } from "./define-tool.js";
 
@@ -85,47 +85,68 @@ export class WorkspaceReader {
             content: lines.slice(startLine - 1, endLine).map((line, index) => `${startLine + index}: ${line}`).join("\n")
         });
     }
-    async search(input: string, query: string, signal?: AbortSignal): Promise<string> {
+    /** 文件名查找与文本搜索共享遍历；所有入口沿用链接、排除目录和扫描上限检查。 */
+    private async *files(input: string, state: { scanned: number; truncated: boolean }, signal?: AbortSignal): AsyncGenerator<{ path: string }> {
         const start = await this.path(input, signal);
         if (!(await lstat(start)).isDirectory()) throw new ToolInputError("path must be a directory");
         const pending = [start];
-        const matches: { path: string; line: number; text: string }[] = [];
-        let scanned = 0, bytes = 0, entries = 0, truncated = false;
         const root = await realpath(this.root);
-        search: while (pending.length) {
+        let entries = 0;
+        while (pending.length) {
             const directory = await this.path(relative(root, pending.pop()!).split(sep).join("/") || ".", signal);
             for await (const entry of await opendir(directory)) {
                 signal?.throwIfAborted();
-                if (++entries > 10000 || scanned >= 2000 || bytes >= 8 * maxFileBytes || matches.length >= 50) { truncated = true; break search; }
+                if (++entries > 10000 || state.scanned >= 2000) { state.truncated = true; return; }
                 if (!allowedName(entry.name) || entry.isSymbolicLink()) continue;
                 const candidate = join(directory, entry.name);
                 if (await this.excluded(candidate)) continue;
-                const rel = relative(root, candidate).split(sep).join("/");
                 if (entry.isDirectory()) { pending.push(candidate); continue; }
                 if (!entry.isFile() || !readable(entry.name)) continue;
-                scanned++;
-                try {
-                    const text = await this.text(await this.path(rel, signal), signal);
-                    bytes += Buffer.byteLength(text);
-                    const lines = text.split(/\r?\n/);
-                    for (let i = 0; i < lines.length; i++) {
-                        if (lines[i]!.toLowerCase().includes(query.toLowerCase())) {
-                            matches.push({ path: rel, line: i + 1, text: lines[i]!.slice(0, 500) });
-                            if (matches.length >= 50) { truncated = true; break search; }
-                        }
-                    }
-                } catch (error) {
-                    signal?.throwIfAborted();
-                    if (!(error instanceof ToolAccessError) && !(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) throw error;
-                }
+                state.scanned++;
+                yield { path: relative(root, candidate).split(sep).join("/") };
             }
         }
-        return JSON.stringify({ query, path: input, matches, scannedFiles: scanned, truncated });
+    }
+    async find(input: string, pattern: string, signal?: AbortSignal): Promise<string> {
+        const glob = pattern.replace(/\\/g, "/");
+        if (isAbsolute(glob) || glob.split("/").includes("..") || /[:\0]/.test(glob)) throw new ToolInputError("pattern must be workspace-relative");
+        const state = { scanned: 0, truncated: false };
+        const matches: string[] = [];
+        for await (const file of this.files(input, state, signal)) {
+            if (!matchesGlob(file.path, glob)) continue;
+            matches.push(file.path);
+            if (matches.length >= 100) { state.truncated = true; break; }
+        }
+        return JSON.stringify({ path: input, pattern, matches: matches.sort(), scannedFiles: state.scanned, truncated: state.truncated });
+    }
+    async search(input: string, query: string, signal?: AbortSignal): Promise<string> {
+        const matches: { path: string; line: number; text: string }[] = [];
+        const state = { scanned: 0, truncated: false };
+        const lowerQuery = query.toLowerCase();
+        let bytes = 0;
+        search: for await (const file of this.files(input, state, signal)) {
+            if (bytes >= 8 * maxFileBytes) { state.truncated = true; break; }
+            try {
+                const text = await this.text(await this.path(file.path, signal), signal);
+                bytes += Buffer.byteLength(text);
+                const lines = text.split(/\r?\n/);
+                for (let i = 0; i < lines.length; i++) {
+                    if (lines[i]!.toLowerCase().includes(lowerQuery)) {
+                        matches.push({ path: file.path, line: i + 1, text: lines[i]!.slice(0, 500) });
+                        if (matches.length >= 50) { state.truncated = true; break search; }
+                    }
+                }
+            } catch (error) {
+                signal?.throwIfAborted();
+                if (!(error instanceof ToolAccessError) && !(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) throw error;
+            }
+        }
+        return JSON.stringify({ query, path: input, matches, scannedFiles: state.scanned, truncated: state.truncated });
     }
 }
 
 /**
- * 定义了三个简易的工具函数分别是，list_directory、read_file 和 search_workspace。
+ * 工作区工具的唯一工厂；各工具共享 WorkspaceReader 的访问策略。
  * list_directory：列出工作区中可访问的源文件和目录，最多返回 200 个条目。
  * read_file：读取文本源文件的最多 200 行内容；返回行号以便引用。
  * search_workspace：使用不区分大小写的字面查询搜索源文本；返回路径和行号。扫描有界；如果被截断，请缩小路径范围。
@@ -138,6 +159,12 @@ export function createWorkspaceTools(root: string, excludedPaths: string[] = [])
     const path = stringParameter(500, "Workspace-relative path; use . for the root.");
 
     return [
+        defineReadOnlyTool({
+            name: "find_files",
+            description: "Find source files by workspace-relative glob, up to 100 paths. Use **/filename.ext to include nested directories, **/*.ts for a type, src/**/agent*.ts for a subtree. Use search_workspace for contents. Narrow path if truncated.",
+            parameters: { path, pattern: stringParameter(500, "Glob matched against paths relative to workspace root, even when path narrows the scan.") },
+            execute: ({ path, pattern }, signal) => reader.find(path, pattern, signal),
+        }),
         defineReadOnlyTool({
             name: "list_directory",
             description: "List accessible source files and directories (up to 200 entries).",

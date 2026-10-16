@@ -1,6 +1,14 @@
 import type { AgentMessage, AgentTurn, ToolDefinition } from "./contracts.js";
 export interface LlmConfig { llmApiKey?: string; llmModel: string; llmBaseUrl?: string; llmTimeoutMs: number; }
 
+/** 可纠正的供应商协议错误；不携带原始响应，避免把凭据或推理文本写进日志。 */
+export class ModelProtocolError extends Error {
+    constructor(readonly code: "INVALID_TOOL_CALLS" | "INVALID_RESPONSE") {
+        super(code);
+        this.name = "ModelProtocolError";
+    }
+}
+
 /** One provider protocol for agent decisions and harness-internal text generation. */
 export interface AgentModel {
   /**

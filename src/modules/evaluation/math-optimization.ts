@@ -61,7 +61,7 @@ export async function evaluateOptimization(o:OptimizationOptions) {
     if(hash(JSON.stringify(rag.questions))!==hash(JSON.stringify(corpus.knowledge)))throw new Error("RAG corpus mismatch");
     const cases:OptimizationCase[]=(o.suite==="stress"?stressCases(corpus):[...corpus[o.suite].map(q=>({id:q.id,category:q.difficulty??"standard",question:renderQuestion(q),history:[],expected:[q.answer]})),...stressCases(corpus)]).slice(0,o.limit);
     await mkdir(out,{recursive:true});await mkdir(join(out,"trials"));
-    const manifest={version:2,startedAt:new Date().toISOString(),model:config.llmModel,thinking:config.math.thinking,temperature:0,outputBudget:"2048; long or multiple inputs 4096",...o,modelFactory:undefined,rag:undefined,progress:undefined,
+    const manifest={version:2,startedAt:new Date().toISOString(),model:config.llmModel,thinking:config.math.thinking,temperature:0,outputBudget:config.math.thinking==="enabled"?"8192":"2048; long or multiple inputs 4096",...o,modelFactory:undefined,rag:undefined,progress:undefined,
         corpusHash:hash(JSON.stringify(corpus)),sourceHash:await sourceHash(resolve("src")),caseHash:hash(JSON.stringify(cases)),knowledge:corpus.knowledge.length,
         limitations:["Original locally authored parameterized practice set; held-out parameters share template families.","Exact final answer grading does not certify proof quality.","p99 is nearest-rank descriptive; <100 samples is effectively the maximum and statistically unstable.","Memory sampled with sequential variants in one process; Node allocator/RSS is shared across trials and variants, so absolute peaks are descriptive only."]};
     await writeFile(join(out,"manifest.json"),JSON.stringify(manifest,null,2));
@@ -105,10 +105,10 @@ export async function evaluateOptimization(o:OptimizationOptions) {
         }finally{clearInterval(sampler);}
     }
     const report={manifest,rows};await writeFile(join(out,"comparison.json"),JSON.stringify(report,null,2));
-    const md=`# GLM-4.6V 初三数学实验\n\n500题知识库，含50道长难题。每变体相同题序和模型配置，失败与超时计入分母。\n\n| 变体 | 正确率 | n | p95秒 | p99秒 | 首工具p95毫秒 | 平均输入token | 峰值heap MiB |\n|---|---:|---:|---:|---:|---:|---:|---:|\n${rows.map((r:any)=>`| ${r.variant} | ${(r.accuracy.value*100).toFixed(1)}% | ${r.total} | ${(r.p95Ms/1000).toFixed(2)} | ${(r.p99Ms/1000).toFixed(2)} | ${r.firstToolP95Ms?.toFixed(1)??"N/A"} | ${r.avgInputTokens.toFixed(0)} | ${r.peakHeapMiB.toFixed(1)} |`).join("\n")}\n\n${manifest.limitations.join("\n\n")}\n\n逐题答案、失败与轨迹在trials目录；RAG召回使用独立rag报告，不以知识点命中冒充相关题召回。\n`;
+    const md=`# ${config.llmModel} 初三数学实验\n\n500题知识库，含50道长难题。每变体相同题序和模型配置，失败与超时计入分母。\n\n| 变体 | 正确率 | n | p95秒 | p99秒 | 首工具p95毫秒 | 平均输入token | 峰值heap MiB |\n|---|---:|---:|---:|---:|---:|---:|---:|\n${rows.map((r:any)=>`| ${r.variant} | ${(r.accuracy.value*100).toFixed(1)}% | ${r.total} | ${(r.p95Ms/1000).toFixed(2)} | ${(r.p99Ms/1000).toFixed(2)} | ${r.firstToolP95Ms?.toFixed(1)??"N/A"} | ${r.avgInputTokens.toFixed(0)} | ${r.peakHeapMiB.toFixed(1)} |`).join("\n")}\n\n${manifest.limitations.join("\n\n")}\n\n逐题答案、失败与轨迹在trials目录；RAG召回使用独立rag报告，不以知识点命中冒充相关题召回。\n`;
     await writeFile(join(out,"comparison.md"),md);
     const escape=(s:string)=>s.replace(/[&<>]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[ch]!));
-    await writeFile(join(out,"comparison.html"),`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>GLM-4.6V 优化对比</title><style>body{font:15px/1.7 system-ui;max-width:1300px;margin:32px auto;padding:20px}pre{white-space:pre-wrap}a{color:#2466bb}</style><h1>GLM-4.6V 初三数学优化对比</h1><pre>${escape(md)}</pre><a href="comparison.json">完整指标JSON</a></html>`);
+    await writeFile(join(out,"comparison.html"),`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>${escape(config.llmModel)} 优化对比</title><style>body{font:15px/1.7 system-ui;max-width:1300px;margin:32px auto;padding:20px}pre{white-space:pre-wrap}a{color:#2466bb}</style><h1>${escape(config.llmModel)} 初三数学优化对比</h1><pre>${escape(md)}</pre><a href="comparison.json">完整指标JSON</a></html>`);
     return report;
 }
 

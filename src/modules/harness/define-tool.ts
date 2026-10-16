@@ -38,15 +38,63 @@ export type ToolInput<P extends Parameters> = {
     [K in keyof P]: P[K] extends ToolParameter<infer T> ? T : never;
 };
 
-export interface ReadOnlyToolOptions<P extends Parameters> {
+export interface ToolOptions<P extends Parameters> {
     name: string;
     description: string;
     /** 当前参数均为必填；额外字段会被拒绝。新参数类型可实现 ToolParameter<T>。 */
     parameters: P;
+    readonly: boolean;
+    idempotent: boolean;
     /** 可选的跨字段业务校验：仅校验，不修改参数、不做 I/O；失败抛 ToolInputError。 */
     validate?(input: ToolInput<P>): void;
-    /** 只读业务逻辑；返回文本或 JSON 字符串，并向下游传递取消信号。 */
+    /** 业务逻辑；返回文本或 JSON 字符串，并向下游传递取消信号。 */
     execute(input: ToolInput<P>, signal?: AbortSignal): Promise<string>;
+}
+
+export type ReadOnlyToolOptions<P extends Parameters> = Omit<ToolOptions<P>, "readonly" | "idempotent">;
+
+/** 组合参数沿用同一声明/解析契约，无须为任务列表另写一套工具接口。 */
+export function enumParameter<const T extends string>(values: readonly T[]): ToolParameter<T> {
+    if (!values.length || new Set(values).size !== values.length) throw new TypeError("Invalid enum values");
+    return {
+        schema: { type: "string", enum: [...values] },
+        parse(value, name) {
+            if (typeof value !== "string" || !values.includes(value as T))
+                throw new ToolInputError(`${name} must be one of: ${values.join(", ")}`);
+            return value as T;
+        },
+    };
+}
+
+export function arrayParameter<T>(item: ToolParameter<T>, maximum: number): ToolParameter<T[]> {
+    if (!Number.isSafeInteger(maximum) || maximum < 1) throw new TypeError("Invalid array bound");
+    return {
+        schema: { type: "array", items: structuredClone(item.schema), maxItems: maximum },
+        parse(value, name) {
+            if (!Array.isArray(value) || value.length > maximum) throw new ToolInputError(`${name} must be an array of at most ${maximum} items`);
+            return value.map((value, index) => item.parse(value, `${name}[${index}]`));
+        },
+    };
+}
+
+function parseParameters<P extends Parameters>(parameters: P, input: unknown): ToolInput<P> {
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new ToolInputError("Expected a JSON object");
+    const entries = Object.entries(parameters);
+    if (Object.keys(input).some(name => !Object.hasOwn(parameters, name)))
+        throw new ToolInputError(`Allowed fields: ${entries.map(([name]) => name).join(", ")}`);
+    return Object.fromEntries(entries.map(([name, parameter]) =>
+        [name, parameter.parse(Object.hasOwn(input, name) ? (input as Record<string, unknown>)[name] : undefined, name)])) as ToolInput<P>;
+}
+
+export function objectParameter<P extends Parameters>(parameters: P): ToolParameter<ToolInput<P>> {
+    return { schema: parameterSchema(parameters), parse: input => parseParameters(parameters, input) };
+}
+
+function parameterSchema(parameters: Parameters): Record<string, unknown> {
+    return {
+        type: "object", properties: Object.fromEntries(Object.entries(parameters).map(([name, parameter]) => [name, structuredClone(parameter.schema)])),
+        required: Object.keys(parameters), additionalProperties: false,
+    };
 }
 
 /**
@@ -62,31 +110,25 @@ export interface ReadOnlyToolOptions<P extends Parameters> {
  * });
  */
 export function defineReadOnlyTool<P extends Parameters>(options: ReadOnlyToolOptions<P>): RegisteredTool {
+    return defineTool({ ...options, readonly: true, idempotent: true });
+}
+
+/** 原生工具唯一注册入口；只读便捷函数只是固定执行属性，校验和 schema 均复用这里。 */
+export function defineTool<P extends Parameters>(options: ToolOptions<P>): RegisteredTool {
     if (!options.name.trim() || !options.description.trim()) throw new TypeError("Tool name and description are required");
-    const entries = Object.entries(options.parameters);
-    const allowed = new Set(entries.map(([name]) => name));
     function parse(input: Record<string, unknown>): ToolInput<P> {
-        if (!input || typeof input !== "object" || Array.isArray(input)) throw new ToolInputError("Expected a JSON object");
-        if (Object.keys(input).some(name => !allowed.has(name)))
-            throw new ToolInputError(`Allowed fields: ${[...allowed].join(", ")}`);
-        const parsed = Object.fromEntries(entries.map(([name, parameter]) =>
-            [name, parameter.parse(Object.hasOwn(input, name) ? input[name] : undefined, name)])) as ToolInput<P>;
+        const parsed = parseParameters(options.parameters, input);
         options.validate?.(parsed);
         return parsed;
     }
     return {
-        readonly: true,
-        idempotent: true,
+        readonly: options.readonly,
+        idempotent: options.idempotent,
         source: { type: "custom" },
         definition: {
             name: options.name,
             description: options.description,
-            parameters: {
-                type: "object",
-                properties: Object.fromEntries(entries.map(([name, parameter]) => [name, structuredClone(parameter.schema)])),
-                required: [...allowed],
-                additionalProperties: false,
-            },
+            parameters: parameterSchema(options.parameters),
         },
         validate(input) { parse(input); },
         async execute(input, signal) {

@@ -8,6 +8,8 @@ export interface HarnessConfig {
     maxCallsPerStep: number;
     toolTimeoutMs: number;
     toolOutputTokens: number;
+    maxProtocolRepairs: number;
+    maxMcpTools: number;
 }
 export function loadHarnessConfig(env: NodeJS.ProcessEnv): HarnessConfig {
     const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -26,5 +28,7 @@ export function loadHarnessConfig(env: NodeJS.ProcessEnv): HarnessConfig {
         maxCallsPerStep: number("AGENT_MAX_CALLS_PER_STEP", 4, 1, 8),
         toolTimeoutMs: number("AGENT_TOOL_TIMEOUT_MS", 15000, 1, 120000),
         toolOutputTokens: number("AGENT_TOOL_OUTPUT_TOKENS", 2048, 128, 8192),
+        maxProtocolRepairs: number("AGENT_PROTOCOL_REPAIRS", 0, 0, 3),
+        maxMcpTools: number("AGENT_MAX_MCP_TOOLS", 64, 1, 64),
     };
 }

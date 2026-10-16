@@ -9,6 +9,7 @@ import { loadContextConfig, type ContextConfig } from "../modules/harness/contex
 import { loadHarnessConfig, type HarnessConfig } from "../modules/harness/config.js";
 import type { MathVariant } from "../modules/math/contracts.js";
 import { ALL_MATH_VARIANTS } from "../modules/math/contracts.js";
+import { READING_VARIANTS, type ReadingVariant } from "../modules/reading/contracts.js";
 
 
 /**
@@ -16,6 +17,8 @@ import { ALL_MATH_VARIANTS } from "../modules/math/contracts.js";
  * 但是不建议自己的大模型ApiKey放在里面，这个自己做终端的环境变量来管理更安全。
  */
 export interface AppConfig {
+    schoolSubject: "math" | "chinese" | "auto";
+    reading: { variant: ReadingVariant; corpusPath: string; contextTokens: number };
     math: { variant: MathVariant | "general"; corpusPath: string; indexPath: string; submissionsPath: string; embeddingBaseUrl: string; thinking: "enabled" | "disabled" };
     observability: { enabled: boolean; dataDir: string; maxEvents: number };
     llmFallback?: { model: string; baseUrl?: string; apiKey?: string };
@@ -63,6 +66,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
     // 数学代理变体，默认为 general 或 adaptive
     const mathVariant = env.MATH_AGENT_VARIANT ?? (nodeEnv === "test" ? "general" : "adaptive");
     if (!["general", ...ALL_MATH_VARIANTS].includes(mathVariant)) throw new Error("Invalid MATH_AGENT_VARIANT");
+    const schoolSubject = env.SCHOOL_SUBJECT ?? "math";
+    const readingVariant = env.READING_AGENT_VARIANT ?? "adaptive";
+    const readingContextTokens = Number(env.READING_CONTEXT_TOKENS ?? "1400");
+    if (!["math", "chinese", "auto"].includes(schoolSubject) || !READING_VARIANTS.includes(readingVariant as ReadingVariant) ||
+        !Number.isSafeInteger(readingContextTokens) || readingContextTokens < 256 || readingContextTokens > 6000) throw new Error("Invalid reading configuration");
     const thinking = env.GLM_THINKING ?? "disabled";
     if (!["enabled", "disabled"].includes(thinking)) throw new Error("Invalid GLM_THINKING");
     const mathEmbeddingUrl = env.MATH_EMBEDDING_BASE_URL ?? "https://open.bigmodel.cn/api/paas/v4";
@@ -92,6 +100,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
         llmFallback = { model: env.LLM_FALLBACK_MODEL, baseUrl, apiKey: env.LLM_FALLBACK_API_KEY || env.LLM_API_KEY };
     } else if (env.LLM_FALLBACK_BASE_URL || env.LLM_FALLBACK_API_KEY) throw new Error("Fallback settings require LLM_FALLBACK_MODEL");
     return {
+        schoolSubject: schoolSubject as AppConfig["schoolSubject"],
+        reading: { variant: readingVariant as ReadingVariant, contextTokens: readingContextTokens,
+            corpusPath: env.READING_CORPUS_PATH ?? fileURLToPath(new URL("../../evals/chinese/corpus.json", import.meta.url)) },
         math: { variant: mathVariant as MathVariant | "general", thinking: thinking as "enabled" | "disabled", embeddingBaseUrl: mathEmbeddingUrl,
             corpusPath: env.MATH_CORPUS_PATH ?? fileURLToPath(new URL("../../evals/math/corpus.json", import.meta.url)),
             indexPath: env.MATH_INDEX_PATH ?? fileURLToPath(new URL("../../data/math/index.json", import.meta.url)),

@@ -8,7 +8,7 @@ import { createApp } from "../src/app.js";
 import { loadConfig } from "../src/config/env.js";
 if (!process.env.LLM_API_KEY) throw new Error("Live smoke requires LLM_API_KEY");
 const directory = await mkdtemp(join(tmpdir(), "math-live-smoke-"));
-const config = loadConfig({ ...process.env, NODE_ENV: "test", MATH_AGENT_VARIANT: "combined", LLM_MODEL: "glm-4.6v", LLM_BASE_URL: "https://open.bigmodel.cn/api/paas/v4",
+const config = loadConfig({ ...process.env, NODE_ENV: "test", MATH_AGENT_VARIANT: "combined", LLM_MODEL: process.env.LLM_MODEL ?? "glm-4.6v", LLM_BASE_URL: process.env.LLM_BASE_URL ?? "https://open.bigmodel.cn/api/paas/v4",
     SESSION_DATA_DIR: join(directory, "sessions"), MATH_SUBMISSIONS_PATH: join(directory, "questions"), AGENT_MODEL_ATTEMPT_TIMEOUT_MS: "120000", AGENT_TOOL_TIMEOUT_MS: "30000" });
 const server = createApp(config).listen(0, "127.0.0.1"); await once(server, "listening");
 try {

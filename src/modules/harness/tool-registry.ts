@@ -18,11 +18,13 @@ export class ToolRegistry {
         return this;
     }
     /**
-     * 获取所有已注册的只读工具的定义。
-     * @returns 工具定义的数组，包含所有已注册的只读工具的副本。
+     * 获取当前运行允许的工具定义副本；状态工具也在这里，执行属性由注册项决定。
      */
     definitions(): ToolDefinition[] { return [...this.entries.values()].map(tool => structuredClone(tool.definition)); }
-    parallelSafe(name:string) {const t=this.entries.get(name);return t?.readonly===true&&t?.idempotent===true;}
+    parallelSafe(name: string): boolean {
+        const tool = this.entries.get(name);
+        return tool?.readonly === true && tool.idempotent === true;
+    }
     async execute(call: ToolCall, signal?: AbortSignal): Promise<AgentMessage> {
         signal?.throwIfAborted();
         const tool = this.entries.get(call.name);
@@ -49,7 +51,8 @@ export class ToolRegistry {
             // Raw exceptions may contain provider credentials or absolute paths.
             code = error instanceof ToolInputError ? "INVALID_ARGUMENTS" : error instanceof ToolAccessError ? "ACCESS_DENIED" :
                 error instanceof Error && error.name === "TimeoutError" ? "TOOL_TIMEOUT" : "TOOL_FAILED";
-            text = JSON.stringify({ error: code, message: error instanceof ToolInputError ? error.message : "Tool unavailable or access denied. Refine the request or report the limitation." });
+            text = JSON.stringify({ error: code, message: error instanceof ToolInputError ? error.message : "Tool unavailable or access denied. Refine the request or report the limitation.",
+                ...(error instanceof ToolInputError ? { expectedArguments: tool.definition.parameters } : {}) });
         }
         signal?.throwIfAborted();
         const suffix = "\n[Tool output truncated; narrow the query or request a smaller line range.]";
