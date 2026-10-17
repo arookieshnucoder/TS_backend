@@ -22,8 +22,20 @@ export function toolRound(turn: Pick<AgentTurn, "content" | "toolCalls" | "reaso
         results,
     };
 }
-export interface AgentResult { content: string; modelTurns: number; toolCalls: number; }
+export interface AgentResult {
+    content: string; modelTurns: number; toolCalls: number;
+    review?: { status: "passed" | "failed" | "uncertain" | "unavailable"; attempts: number; revised: boolean };
+}
+/** Only named, host-registered agents can be delegated to. Context is explicit, never inherited. */
+export interface AgentTask { agent: string; input: string; context?: AgentMessage[]; }
+export interface AgentTaskResult extends AgentResult { taskId: string; agent: string; }
+export interface AgentResultContext { question: string; history: readonly AgentMessage[]; }
+/** Reusable workflow output stage, executed by the harness before committing a result. */
+export interface AgentResultProcessor {
+    process(result: AgentResult, runtime: AgentRuntime, context: AgentResultContext, signal?: AbortSignal): Promise<AgentResult>;
+}
 export interface AgentInstructions { system: string; final: string; }
+// TODO: Maybe add more workflow-related methods or metadata here.
 export interface AgentWorkflow {
     run(runtime: AgentRuntime, signal?: AbortSignal): Promise<AgentResult>;
 }
@@ -32,6 +44,8 @@ export interface AgentWorkflow {
  * 代理运行时接口，定义了工具、步骤限制以及与代理交互的方法。
  */
 export interface AgentRuntime {
+    readonly agents: readonly { name: string; description: string }[];
+    delegate(task: AgentTask, signal?: AbortSignal): Promise<AgentTaskResult>;
     readonly tools: ToolDefinition[];
     readonly maxToolSteps: number;
     prepare(rounds: readonly ToolRound[], final: boolean, signal?: AbortSignal): Promise<AgentMessage[]>;

@@ -1,5 +1,5 @@
 import type { AgentModel } from "../agent/model.js";
-import type { AgentInstructions, AgentMessage, AgentResult, AgentWorkflow, ToolCall } from "../agent/contracts.js";
+import type { AgentInstructions, AgentMessage, AgentResult, AgentResultProcessor, AgentWorkflow, ToolCall } from "../agent/contracts.js";
 import type { Logger } from "../../common/logging/logger.js";
 import type { ContextConfig } from "./context/config.js";
 import { TokenBudget } from "./context/tokens.js";
@@ -15,8 +15,12 @@ import { HarnessRuntime, HarnessPolicyError } from "./runtime.js";
 import type { TextCompressor } from "./context/contracts.js";
 import { prepareRun } from "./run-preparation.js";
 import { toolDiscovery } from "./tool-discovery.js";
+import { SubAgentSession, type SubAgentDefinition, type SubAgentScope, type DelegationLimits } from "./subagents.js";
 
 export interface HarnessOptions {
+    subAgents?: SubAgentDefinition[];
+    delegation?: Partial<DelegationLimits>;
+    resultProcessors?: AgentResultProcessor[];
     recovery?: Partial<RecoveryPolicy>;
     fallbackModels?: NamedAgentModel[];
     maxCallsPerStep?: number;
@@ -40,6 +44,7 @@ export interface HarnessInput {
     proactiveTools?: boolean;
     initialCalls?: ToolCall[];
 }
+// 这里构建的是通用的 harness 架构
 export interface HarnessRunner {
     run(input: HarnessInput, signal?: AbortSignal): Promise<AgentResult>;
 }
@@ -48,8 +53,9 @@ export interface HarnessRunner {
  * Workflow owns the decision loop; runtime policy applies to every workflow.
  */
 export class AgentHarness implements HarnessRunner {
-    private readonly tokens: TokenBudget;
-    private readonly recovery: RecoveryPolicy;
+    // agent harness 的核心组件：token 预算、恢复策略和选项配置
+    private readonly tokens: TokenBudget; // 限制 token 使用, 贫穷友好
+    private readonly recovery: RecoveryPolicy; // 恢复策略
     private readonly options: Required<Omit<HarnessOptions, "recovery">>;
     constructor(private readonly model: AgentModel, private readonly workflow: AgentWorkflow,
         private readonly instructions: AgentInstructions, private readonly config: ContextConfig,
@@ -63,11 +69,21 @@ export class AgentHarness implements HarnessRunner {
             ["toolOutputTokens", toolOutputTokens, 128, 8192], ["maxProtocolRepairs", maxProtocolRepairs, 0, 3], ["maxMcpTools", maxMcpTools, 1, 64]] as const) {
             if (!Number.isInteger(value) || value < min || value > max) throw new TypeError(`Invalid harness ${name}`);
         }
-        this.options = { fallbackModels: fallbackModels.map(({ name, model }) => ({ name, model })), maxCallsPerStep, toolTimeoutMs, toolOutputTokens, maxProtocolRepairs, maxMcpTools };
+        // Validate before starting work; each run receives fresh shared delegation budgets.
+        new SubAgentSession(options.subAgents, options.delegation);
+        if (options.resultProcessors?.some(processor => typeof processor?.process !== "function")) throw new TypeError("Invalid result processor");
+        this.options = { fallbackModels: fallbackModels.map(({ name, model }) => ({ name, model })), maxCallsPerStep, toolTimeoutMs, toolOutputTokens, maxProtocolRepairs, maxMcpTools,
+            subAgents: [...(options.subAgents ?? [])], delegation: { ...options.delegation }, resultProcessors: [...(options.resultProcessors ?? [])] };
         this.tokens = new TokenBudget(config);
         this.recovery = recoveryPolicy(options.recovery);
     }
     async run(input: HarnessInput, signal?: AbortSignal): Promise<AgentResult> {
+        const session = new SubAgentSession(this.options.subAgents, this.options.delegation);
+        return this.runScoped(input, signal, session, { depth: 0, allowed: [...session.definitions.keys()] });
+    }
+    private async runScoped(input: HarnessInput, inheritedSignal: AbortSignal | undefined, session: SubAgentSession, scope: SubAgentScope): Promise<AgentResult> {
+        const lifetime = new AbortController();
+        const signal = inheritedSignal ? AbortSignal.any([inheritedSignal, lifetime.signal]) : lifetime.signal;
         const started = Date.now();
         const metadata = { ...input.metadata };
         const event = (name: string, fields: Record<string, unknown> = {}) => {
@@ -77,6 +93,7 @@ export class AgentHarness implements HarnessRunner {
             try { input.onEvent?.(name, fields); } catch { this.logger.error("trace.observer_failed", { runId: metadata.runId }); }
         };
         event("agent.started");
+        let runtime: HarnessRuntime | undefined;
         try {
             return await abortable(async () => {
                 const model = new RecoveringModel(this.model, this.options.fallbackModels, this.recovery, event);
@@ -94,8 +111,18 @@ export class AgentHarness implements HarnessRunner {
                 const selection = selectTools(tools, input.question, this.instructions, this.config, this.tokens, { limit: this.options.maxMcpTools });
                 for (const tool of selection.tools) registry.register(tool);
                 if (selection.omitted) event("agent.tools.selected", { included: selection.tools.length, omittedMcpTools: selection.omitted, mcpBudgetTokens: selection.budgetTokens, reason: "context_budget" });
-                const runtime = new HarnessRuntime(model, builder, registry, this.config.maxToolSteps, this.options.maxCallsPerStep,
-                    this.config.maxInputTokens, event, signal, this.options.maxProtocolRepairs);
+                runtime = new HarnessRuntime(model, builder, registry, this.config.maxToolSteps, this.options.maxCallsPerStep,
+                    this.config.maxInputTokens, event, signal, this.options.maxProtocolRepairs,
+                    scope.allowed.map(name => ({ name, description: session.definitions.get(name)!.description })),
+                    (task, childSignal) => session.run(task, scope, childSignal, event, async (definition, request, childScope, operation) => {
+                        const child = new AgentHarness(definition.model, definition.workflow, definition.instructions, definition.context ?? this.config,
+                            { info() {}, error() {} }, { ...this.options, fallbackModels: [], resultProcessors: [] });
+                        return child.runScoped({ question: request.input, history: request.context ?? [], tools: definition.tools ?? [],
+                            proactiveTools: false, metadata: { ...metadata, taskId: childScope.taskId, parentTaskId: scope.taskId ?? null, agent: definition.name },
+                            onEvent: (name, fields) => name.startsWith("agent.subagent.") ? event(name, fields) :
+                                event("agent.subagent.event", { ...fields, event: name, taskId: childScope.taskId, parentTaskId: scope.taskId ?? null, agent: definition.name }),
+                        }, operation, session, childScope);
+                    }));
                 // Acquire historical facts before the first model turn, avoiding lengthy unguided reasoning.
                 if (prefetchHistory && runtime.tools.some(tool => tool.name === "history_lookup")) {
                     await runtime.prefetch([{ id: "harness-history-1", name: "history_lookup", arguments: { query: input.question } }], "检索历史原文和最新条件。", signal);
@@ -105,7 +132,13 @@ export class AgentHarness implements HarnessRunner {
                     /方程|抛物线|三角形|概率|x[²^]/.test(input.question) && runtime.tools.some(tool => tool.name === "math_analyze")) {
                     await runtime.prefetch([{ id: "harness-analyze-1", name: "math_analyze", arguments: { query: input.question } }], "先提取长问题的条件和可执行检查。", signal);
                 }
-                const returned = await this.workflow.run(runtime, signal);
+                let returned = await this.workflow.run(runtime, signal);
+                signal?.throwIfAborted();
+                for (const processor of this.options.resultProcessors) {
+                    signal?.throwIfAborted();
+                    returned = await processor.process(returned, runtime, { question: input.question, history: input.history }, signal);
+                }
+                signal?.throwIfAborted();
                 const result = { ...returned, modelTurns: runtime.modelInvocationCount, toolCalls: runtime.executedToolCount };
                 event("agent.completed", { modelTurns: result.modelTurns, toolCalls: result.toolCalls, durationMs: Date.now() - started });
                 return result;
@@ -114,6 +147,9 @@ export class AgentHarness implements HarnessRunner {
             event("agent.failed", { cancelled: signal?.aborted ?? false, durationMs: Date.now() - started,
                 ...(error instanceof HarnessPolicyError ? { code: error.code } : {}) });
             throw error;
+        } finally {
+            scope.usage = { modelTurns: runtime?.modelInvocationCount ?? 0, toolCalls: runtime?.executedToolCount ?? 0 };
+            lifetime.abort();
         }
     }
 }

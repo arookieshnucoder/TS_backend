@@ -117,7 +117,7 @@ test("memory repository does not leak mutable entities", async () => {
 
 test("configuration has defaults and rejects invalid deployment values", () => {
   assert.equal(loadConfig({}).port, 8080);
-  assert.equal(loadConfig({}).llmModel, "glm-4.6v");
+  assert.equal(loadConfig({}).llmModel, "glm-4.5-air");
   assert.equal(loadConfig({}).llmBaseUrl, "https://open.bigmodel.cn/api/paas/v4");
   assert.equal(loadConfig({ MATH_AGENT_VARIANT: "general" }).llmModel, "deepseek-flash");
   assert.equal(loadConfig({}).math.variant, "adaptive");

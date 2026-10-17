@@ -17,6 +17,7 @@ import { GlmModel } from "../infrastructure/llm/glm-model.js";
 import type { MathOcrProvider } from "../modules/math/contracts.js";
 import { ReadingLibrary } from "../modules/reading/library.js";
 import { createReadingChatAgent, routeSchoolSubject } from "./reading-chat-agent.js";
+import { withAnswerReview, mathReviewEvidence } from "./answer-review.js";
 
 
 export interface AppDependencies {
@@ -31,7 +32,7 @@ export interface AppDependencies {
 }
 
 
-export type DependencyOverrides = Partial<AppDependencies> & { agentModel?: AgentModel; fallbackModels?: NamedAgentModel[] };
+export type DependencyOverrides = Partial<AppDependencies> & { agentModel?: AgentModel; reviewerModel?: AgentModel; fallbackModels?: NamedAgentModel[] };
 
 /** 主模型与备用模型采用同一供应商选择规则，GLM 不会在降级时丢失推理协议字段。 */
 function createModel(provider: LlmConfig, config: AppConfig, errors: ErrorContainer): AgentModel {
@@ -39,13 +40,15 @@ function createModel(provider: LlmConfig, config: AppConfig, errors: ErrorContai
 }
 
 export function createDependencies(overrides: DependencyOverrides = {}, config: AppConfig = loadConfig()): AppDependencies {
-    const allowed = new Set(["errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "mcp", "fallbackModels", "runs", "mathOcr", "readingLibrary"]);
+    const allowed = new Set(["errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "reviewerModel", "mcp", "fallbackModels", "runs", "mathOcr", "readingLibrary"]);
     for (const key of Object.keys(overrides)) {
         if (!allowed.has(key)) throw new TypeError(`Unsupported dependency override: ${key}`);
         if (overrides[key as keyof DependencyOverrides] == null) throw new TypeError(`Dependency override ${key} must not be null or undefined`);
     }
     if (overrides.agentHarness !== undefined && overrides.agentModel !== undefined) throw new TypeError("Inject either agentHarness or agentModel, not both");
     if (overrides.agentHarness !== undefined && overrides.fallbackModels !== undefined) throw new TypeError("Fallbacks belong to the injected harness");
+    if (overrides.agentHarness !== undefined && overrides.reviewerModel !== undefined) throw new TypeError("Reviewers belong to the injected harness");
+    if (overrides.reviewerModel !== undefined && typeof overrides.reviewerModel.turn !== "function") throw new TypeError("Invalid reviewer model");
     if (overrides.agentHarness !== undefined && (typeof overrides.agentHarness.run !== "function" || typeof overrides.agentHarness.titleFor !== "function"))
         throw new TypeError("agentHarness must implement run and titleFor");
     const errors = overrides.errors ?? errorContainer;
@@ -54,26 +57,30 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
     const provider: LlmConfig = { llmApiKey: config.llmApiKey, llmModel: config.llmModel, llmBaseUrl: config.llmBaseUrl, llmTimeoutMs: config.llmTimeoutMs };
     const mcp = overrides.mcp ?? new McpManager(config.mcp.configFile, log, undefined, config.mcp.timeoutMs);
     const runs = overrides.runs ?? (config.observability.enabled ? new RunTraceStore(config.observability.dataDir, log,
-        [config.llmApiKey, config.llmFallback?.apiKey, config.mcp.adminToken], config.observability.maxEvents) : undefined);
+        [config.llmApiKey, config.verification.apiKey, config.llmFallback?.apiKey, config.mcp.adminToken], config.observability.maxEvents) : undefined);
     const readingLibrary = overrides.readingLibrary ?? new ReadingLibrary(config.reading.corpusPath);
     let agentHarness = overrides.agentHarness;
     if (!agentHarness) {
         const model = overrides.agentModel ?? createModel(provider, config, errors);
+        const reviewer = config.verification.enabled ? overrides.reviewerModel ?? new GlmModel({
+            llmApiKey: config.verification.apiKey, llmModel: config.verification.model,
+            llmBaseUrl: config.verification.baseUrl, llmTimeoutMs: config.verification.timeoutMs,
+        }, config.math.thinking) : undefined;
         let fallbackModels = overrides.fallbackModels ?? [];
         if (overrides.fallbackModels === undefined && overrides.agentModel === undefined && config.llmFallback) {
             fallbackModels = [{ name: config.llmFallback.model, model: createModel({ ...provider,
                 llmModel: config.llmFallback.model, llmBaseUrl: config.llmFallback.baseUrl, llmApiKey: config.llmFallback.apiKey }, config, errors) }];
         }
         const harnessOptions = { ...config.harness, fallbackModels };
-        const createBaseAgent = () => config.math.variant !== "general" ? createMathChatAgent(model, config, log, harnessOptions) : createChatAgent(repository, model,
+        const createBaseAgent = () => config.math.variant !== "general" ? createMathChatAgent(model, config, log, harnessOptions, reviewer) : createChatAgent(repository, model,
             () => config.context.elasticsearchUrl ? new ElasticsearchMemorySearch(new TokenBudget(config.context), config.context) :
                 new LocalMemorySearch(new TokenBudget(config.context)), config.context, log,
-            { ...harnessOptions,
+            { ...withAnswerReview(harnessOptions, model, reviewer, config, "math", mathReviewEvidence),
                 excludedPaths: [config.sessionDataDir, config.observability.dataDir, config.mcp.configFile],
                 additionalTools: (_session, signal, context) => mcp.tools(signal, context?.event) });
         if (config.schoolSubject === "math") agentHarness = createBaseAgent();
         else {
-            const reading = createReadingChatAgent(model, config, log, readingLibrary, harnessOptions);
+            const reading = createReadingChatAgent(model, config, log, readingLibrary, harnessOptions, reviewer);
             let base: ChatAgent | undefined;
             const select = (content: string, history: readonly { role: string; content: string }[]) =>
                 config.schoolSubject === "chinese" || routeSchoolSubject(content, history) === "chinese" ? reading : base ??= createBaseAgent();

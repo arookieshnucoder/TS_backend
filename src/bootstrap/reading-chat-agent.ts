@@ -6,9 +6,11 @@ import type { HarnessOptions } from "../modules/harness/agent-harness.js";
 import { ReadingHarness } from "../modules/reading/harness.js";
 import { ReadingLibrary, isReadingRequest, parseReadingInput } from "../modules/reading/library.js";
 import { readingQuestions, readingTask } from "../modules/reading/contracts.js";
+import { withAnswerReview } from "./answer-review.js";
+import { fullReadingEvidence } from "../modules/reading/evidence.js";
 
 export function createReadingChatAgent(model: AgentModel, config: AppConfig, logger: Logger,
-    library: ReadingLibrary, options: HarnessOptions = config.harness): ChatAgent {
+    library: ReadingLibrary, options: HarnessOptions = config.harness, reviewer?: AgentModel): ChatAgent {
     return {
         async run(session, current, signal, context) {
             signal?.throwIfAborted();
@@ -36,7 +38,11 @@ export function createReadingChatAgent(model: AgentModel, config: AppConfig, log
                 if (questions.length < requestedNumbers.length) return { content: "当前材料中缺少所指定题目的完整题干，请补充题目后再解答。", modelTurns: 0, toolCalls: 0 };
                 task = { ...task, questions };
             }
-            const harness = new ReadingHarness(model, task, config.reading.variant, config.context, logger, config.reading.contextTokens, options);
+            const original = task;
+            const reviewedOptions = withAnswerReview(options, model, reviewer, config, "chinese", context => ({
+                question: context.question, title: original.passage.title, original: fullReadingEvidence(original.passage),
+            }));
+            const harness = new ReadingHarness(model, task, config.reading.variant, config.context, logger, config.reading.contextTokens, reviewedOptions);
             return harness.run({ history: session.messages.map(({ role, content }) => ({ role, content })),
                 question: supplied ? readingQuestions(task) : current.content, tools: [],
                 metadata: { sessionId: session.id, messageId: current.id, runId: context?.runId, subject: "chinese" }, onEvent: context?.event }, signal);

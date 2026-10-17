@@ -11,10 +11,12 @@ import { MathRetrievalHarness } from "./harness.js";
 import { MathRag } from "./rag.js";
 import { verifiedSolution } from './verified-solution.js';
 import { EvidenceMathAgent, OptimizedMathHarness } from "./optimized.js";
+import { AnswerReview } from "../agent/answer-review.js";
 export function createMathProfile(variant: MathVariant, rag: MathRag, model: AgentModel, config: ContextConfig, logger: Logger, options: HarnessOptions = {}) {
+    const independentReview = !options.resultProcessors?.some(processor => processor instanceof AnswerReview);
     // 优化模式先由 harness 获取证据，agent 专注求解；adaptive 仅增加必要的独立复核。
     if (isOptimizedMathVariant(variant)) {
-        const harness = new AgentHarness(model, new EvidenceMathAgent(variant === "adaptive"), {
+        const harness = new AgentHarness(model, new EvidenceMathAgent(variant === "adaptive", independentReview), {
             system: MATH_INSTRUCTIONS + "\n长对话中用户最新的明确条件更正覆盖旧值，助手历史结论需重新核验。若旧题原文缺失，明确说明。多题按第n题逐题作答，最后各给一行‘第n题答案：X’；所有子问都需回答。",
             final: "证据已经预取。独立求解当前题，逐个检查子问和条件，依据当前选项输出最终答案。",
         }, config, logger, {
@@ -24,7 +26,7 @@ export function createMathProfile(variant: MathVariant, rag: MathRag, model: Age
     }
     const specialized = variant === "agent" || variant === "combined";
     const enhanced = variant === "harness" || variant === "combined";
-    const harness = new AgentHarness(model, specialized ? new MathAgent(enhanced, enhanced ? verifiedSolution : undefined) : new AskAgent(), {
+    const harness = new AgentHarness(model, specialized ? new MathAgent(enhanced, enhanced ? verifiedSolution : undefined, independentReview) : new AskAgent(), {
         system: specialized ? MATH_INSTRUCTIONS : ASK_INSTRUCTIONS,
         final: specialized ? "独立求解并核对原条件、选项和端点，给出清晰的最终答案。" : FINAL_INSTRUCTIONS,
     }, config, logger, options);

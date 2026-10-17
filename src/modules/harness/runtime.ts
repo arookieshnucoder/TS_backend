@@ -1,11 +1,12 @@
 import { isDeepStrictEqual } from "node:util";
-import type { AgentMessage, AgentRuntime, AgentTurn, ToolCall, ToolDefinition, ToolRound } from "../agent/contracts.js";
+import type { AgentMessage, AgentRuntime, AgentTask, AgentTaskResult, AgentTurn, ToolCall, ToolDefinition, ToolRound } from "../agent/contracts.js";
 import type { AgentModel } from "../agent/model.js";
 import { ModelProtocolError } from "../agent/model.js";
 import { toolRound } from "../agent/contracts.js";
 import type { ContextBuilder } from "./context-builder.js";
 import type { ToolRegistry } from "./tool-registry.js";
 import { abortable } from "./cancellation.js";
+import { DelegationError } from "./subagents.js";
 
 export class HarnessPolicyError extends Error {
     constructor(readonly code: string, message: string) { super(message); this.name = "HarnessPolicyError"; }
@@ -23,12 +24,32 @@ export class HarnessRuntime implements AgentRuntime {
     private readonly requestedIds = new Set<string>();
     private readonly executedIds = new Set<string>();
     private readonly initialRounds: ToolRound[] = [];
-    get executedToolCount() { return this.toolCalls; }
-    get modelInvocationCount() { return this.modelInvocations; }
+    private delegatedModelTurns = 0;
+    private delegatedToolCalls = 0;
+    get executedToolCount() { return this.toolCalls + this.delegatedToolCalls; }
+    get modelInvocationCount() { return this.modelInvocations + this.delegatedModelTurns; }
     constructor(private readonly model: AgentModel, private readonly builder: ContextBuilder, private readonly registry: ToolRegistry,
         readonly maxToolSteps: number, private readonly maxCallsPerBatch: number, private readonly maxInputTokens: number,
         readonly event: (name: string, fields?: Record<string, unknown>) => void, private readonly signal?: AbortSignal,
-        private readonly maxProtocolRepairs = 0) {}
+        private readonly maxProtocolRepairs = 0,
+        readonly agents: readonly { name: string; description: string }[] = [],
+        private readonly delegateTask?: (task: AgentTask, signal?: AbortSignal) => Promise<AgentTaskResult>) {}
+    async delegate(task: AgentTask, operation?: AbortSignal): Promise<AgentTaskResult> {
+        const signal = this.scope(operation); signal?.throwIfAborted();
+        if (!this.delegateTask) reject("SUBAGENT_NOT_ALLOWED", "No sub-agents registered");
+        try {
+            const result = await this.delegateTask!(task, signal);
+            this.delegatedModelTurns += result.modelTurns;
+            this.delegatedToolCalls += result.toolCalls;
+            return result;
+        } catch (error) {
+            if (error instanceof DelegationError && error.usage) {
+                this.delegatedModelTurns += error.usage.modelTurns;
+                this.delegatedToolCalls += error.usage.toolCalls;
+            }
+            throw error;
+        }
+    }
     get tools(): ToolDefinition[] { return this.registry.definitions(); }
     private scope(operation?: AbortSignal) { return this.signal && operation ? AbortSignal.any([this.signal, operation]) : this.signal ?? operation; }
     async prepare(rounds: readonly ToolRound[], final: boolean, operation?: AbortSignal): Promise<AgentMessage[]> {

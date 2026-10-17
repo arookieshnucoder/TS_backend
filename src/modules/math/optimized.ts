@@ -8,7 +8,7 @@ import { verifiedProbability } from "./arithmetic.js";
 import type { RegisteredTool } from "../harness/tool-contracts.js";
 
 export class EvidenceMathAgent implements AgentWorkflow {
-    constructor(private readonly review = false) {}
+    constructor(private readonly review = false, private readonly independentReview = true) {}
     async run(runtime: AgentRuntime, signal?: AbortSignal): Promise<AgentResult> {
         // 检索回合已由 OptimizedMathHarness 注入；这里直接准备求解上下文，禁用额外工具。
         const messages = await runtime.prepare([], true, signal);
@@ -30,7 +30,7 @@ export class EvidenceMathAgent implements AgentWorkflow {
         const checks = analyzeMath(question);
         const supported = checks.clearance || Object.keys(checks.arithmetic).length > 0;
         // 保留原先的复核条件；已支持的数值核验不再触发第二次模型求解。
-        if (this.review && !supported && question.length > 250 && /允许|恰好|最大|最小|不正确|不存在/.test(question)) {
+        if (this.review && this.independentReview && !supported && question.length > 250 && /允许|恰好|最大|最小|不正确|不存在/.test(question)) {
             runtime.event("agent.phase", { phase: "math_independent_review" });
             const review = await runtime.prepare([], true, signal);
             review.push({ role: "assistant", content: turn.content }, { role: "user", content:

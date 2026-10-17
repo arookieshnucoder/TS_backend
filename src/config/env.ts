@@ -17,6 +17,7 @@ import { READING_VARIANTS, type ReadingVariant } from "../modules/reading/contra
  * 但是不建议自己的大模型ApiKey放在里面，这个自己做终端的环境变量来管理更安全。
  */
 export interface AppConfig {
+    verification: { enabled: boolean; model: string; baseUrl: string; apiKey?: string; timeoutMs: number; maxRevisions: number };
     schoolSubject: "math" | "chinese" | "auto";
     reading: { variant: ReadingVariant; corpusPath: string; contextTokens: number };
     math: { variant: MathVariant | "general"; corpusPath: string; indexPath: string; submissionsPath: string; embeddingBaseUrl: string; thinking: "enabled" | "disabled" };
@@ -76,7 +77,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
     const mathEmbeddingUrl = env.MATH_EMBEDDING_BASE_URL ?? "https://open.bigmodel.cn/api/paas/v4";
     const mathUrl = new URL(mathEmbeddingUrl);
     if (mathUrl.protocol !== "https:" || mathUrl.username || mathUrl.password || mathUrl.search || mathUrl.hash) throw new Error("Invalid MATH_EMBEDDING_BASE_URL");
-    // LLM相关配置, 默认DS-flash
+    // 主解题和独立核验使用各自配置的 GLM 模型。
     const llmBaseUrl = env.LLM_BASE_URL ?? (mathVariant === "general" ? "https://api.deepseek.com" : "https://open.bigmodel.cn/api/paas/v4");
     const llmTimeoutMs = Number(env.LLM_TIMEOUT_MS ?? "120000");
     if (!Number.isInteger(llmTimeoutMs) || llmTimeoutMs < 1 || llmTimeoutMs > 600000) throw new Error("LLM_TIMEOUT_MS must be 1..600000");
@@ -84,6 +85,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
         const url = new URL(llmBaseUrl);
         if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Invalid LLM_BASE_URL");
     }
+    const llmModel = env.LLM_MODEL ?? (mathVariant === "general" ? "deepseek-flash" : "glm-4.5-air");
+    const reviewEnabled = env.ANSWER_REVIEW_ENABLED ?? (nodeEnv !== "test" && /^glm-/i.test(llmModel) ? "true" : "false");
+    const reviewModel = env.ANSWER_REVIEW_MODEL ?? "glm-4.7";
+    const reviewBaseUrl = env.ANSWER_REVIEW_BASE_URL ?? "https://open.bigmodel.cn/api/paas/v4";
+    const reviewTimeoutMs = Number(env.ANSWER_REVIEW_TIMEOUT_MS ?? "120000");
+    const maxRevisions = Number(env.ANSWER_REVIEW_MAX_REVISIONS ?? "1");
+    const reviewUrl = new URL(reviewBaseUrl);
+    if (!["true", "false"].includes(reviewEnabled) || !/^glm-[a-z0-9.-]+$/i.test(reviewModel) ||
+        !["http:", "https:"].includes(reviewUrl.protocol) || reviewUrl.username || reviewUrl.password || reviewUrl.search || reviewUrl.hash ||
+        !Number.isInteger(reviewTimeoutMs) || reviewTimeoutMs < 1 || reviewTimeoutMs > 600000 ||
+        !Number.isInteger(maxRevisions) || maxRevisions < 0 || maxRevisions > 2) throw new Error("Invalid answer review configuration");
+    if (reviewEnabled === "true" && reviewBaseUrl.replace(/\/$/, "") !== llmBaseUrl.replace(/\/$/, "") && !env.ANSWER_REVIEW_API_KEY)
+        throw new Error("A different review endpoint requires ANSWER_REVIEW_API_KEY");
     const sessionDataDir = env.SESSION_DATA_DIR ?? fileURLToPath(new URL("../../data/sessions/", import.meta.url));
     const traceEnabled = env.AGENT_TRACE_ENABLED ?? "true";
     const maxEvents = Number(env.AGENT_TRACE_MAX_EVENTS ?? "512");
@@ -100,6 +114,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
         llmFallback = { model: env.LLM_FALLBACK_MODEL, baseUrl, apiKey: env.LLM_FALLBACK_API_KEY || env.LLM_API_KEY };
     } else if (env.LLM_FALLBACK_BASE_URL || env.LLM_FALLBACK_API_KEY) throw new Error("Fallback settings require LLM_FALLBACK_MODEL");
     return {
+        verification: { enabled: reviewEnabled === "true", model: reviewModel, baseUrl: reviewBaseUrl,
+            apiKey: env.ANSWER_REVIEW_API_KEY || env.LLM_API_KEY, timeoutMs: reviewTimeoutMs, maxRevisions },
         schoolSubject: schoolSubject as AppConfig["schoolSubject"],
         reading: { variant: readingVariant as ReadingVariant, contextTokens: readingContextTokens,
             corpusPath: env.READING_CORPUS_PATH ?? fileURLToPath(new URL("../../evals/chinese/corpus.json", import.meta.url)) },
@@ -113,6 +129,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
         port, frontendOrigin, nodeEnv, shutdownTimeoutMs: 5000, context: loadContextConfig(env), harness: loadHarnessConfig(env),
         sessionDataDir,
         llmApiKey: env.LLM_API_KEY,
-        llmModel: env.LLM_MODEL ?? (mathVariant === "general" ? "deepseek-flash" : "glm-4.6v"), llmBaseUrl, llmTimeoutMs
+        llmModel, llmBaseUrl, llmTimeoutMs
     };
 }

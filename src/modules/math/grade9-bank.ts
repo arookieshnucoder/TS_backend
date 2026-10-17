@@ -4,6 +4,7 @@ import type { MathCorpus, MathQuestion } from "./contracts.js";
 type Item = { question: string; correct: string; wrong: string[]; solution: string; skills: string[] };
 const n = (x: number) => Number(x.toFixed(6)).toString();
 const fraction = (a: number, b: number): string => { const gcd = (x: number, y: number): number => y ? gcd(y, x % y) : x; const d = gcd(a, b); return `${a / d}/${b / d}`; };
+
 const standard: Record<string, (t: number) => Item> = {
     roots(t) { const a=t+1,b=t+4; return {question:`解一元二次方程 x²-${a+b}x+${a*b}=0，根是（ ）`,correct:`${a}和${b}`,wrong:[`${-a}和${-b}`,`${a}和${-b}`,`${a+1}和${b}`],solution:`因式分解为(x-${a})(x-${b})=0，分别代回检验。`,skills:["quadratic-equation","factorization"]}; },
     discriminant(t) { const b=2*(t+1),c=(t+1)**2+t; return {question:`方程 x²-${b}x+${c}=0 的判别式是多少？`,correct:`${b*b-4*c}`,wrong:[`${b*b+4*c}`,`${4*c-b*b}`,`${b*b-4*c-4}`],solution:`Δ=b²-4ac=${b*b-4*c}。`,skills:["quadratic-equation","discriminant"]}; },

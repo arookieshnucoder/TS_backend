@@ -6,6 +6,7 @@
   "scripts": {
     "math:download": "powershell -NoProfile -File scripts/download-math.ps1",
     "smoke:math:live": "tsx scripts/smoke-math.ts",
+    "smoke:review:live": "tsx scripts/smoke-answer-review.ts",
     "math:prepare": "tsx scripts/prepare-math.ts",
     "math:enrich": "tsx scripts/enrich-math.ts",
     "math:index": "tsx scripts/index-math.ts",
