@@ -2,9 +2,11 @@
 
 基于 Agent + Harness 的初三学习助手，支持数学检索解题、语文阅读理解和英语选择题，前端使用 Vue，后端使用 TypeScript。
 
-英语代码位于 `src/modules/english/`，`EnglishAgent` 直接实现通用 `AgentWorkflow`，`EnglishHarness` 直接实现 `HarnessRunner` 并组合基础 `AgentHarness`。它不继承或导入语文、数学的 agent、harness、题库或任务定义。仅使用基础工具声明、上下文预算、重试、取消和结果处理扩展。英语失败、缺少原文、题库不可用或题型不支持时，不会转到其他学科。自动路由识别 `[英语]`、`[英语题:题库ID]`、`[Passage]` / `[Questions]`；也可用 `SCHOOL_SUBJECT=english` 固定英语。
+代码阅读与公共层说明见 [架构与恢复策略](ARCHITECTURE.md)。
 
-混合学科会话先按学科选择原始历史，英语追问只复用英语原文和英语对话；其他学科的原文、助手结论不会进入英语上下文。共享会话仍保留完整存储，不做破坏性删改。
+英语代码位于 `src/modules/english/`，`EnglishAgent` 直接实现通用 `AgentWorkflow`，`EnglishHarness` 通过公共 `PassageHarness` 实现 `HarnessRunner`，由公共层组合基础 `AgentHarness`。它不继承或导入语文、数学的 agent、harness、题库或任务定义。仅使用基础工具声明、上下文预算、重试、取消和结果处理扩展。英语失败、缺少原文、题库不可用或题型不支持时，不会转到其他学科。自动路由识别 `[英语]`、`[英语题:题库ID]`、`[Passage]` / `[Questions]`；也可用 `SCHOOL_SUBJECT=english` 固定英语。
+
+混合学科会话先按学科选择原始历史，语文和英语追问分别只复用各自的原文和对话；其他学科的原文、助手结论不会进入其上下文。共享会话仍保留完整存储，不做破坏性删改。
 
 英语支持阅读、语法单选、完形选择，拒绝作文和听力输入。`ENGLISH_WORKFLOW=grounded` 为默认流程：原文完整时，先获得一份批量解候选，再通过基础 `delegate` 为每题创建隔离的 `english_question_solver`。逐题工作器只接收原文、当前题和当前要求，不接收批量候选、父历史、其他题的答案、题库标签或工具权限；两路候选一致时收敛，分歧时仅把本题的候选选项交给隔离工作器回读原文裁决。所有步骤仍使用 GLM-4.5-Air，不声明独立语义核验通过。语法和完形保持同组求解，避免破坏跨空依赖。工作器不递归、每轮最多32次委派，受通用超时和取消策略约束；工作器失败时由英语父流程有界补答剩余题目，裁决失败则保留逐题候选并记录事件。`ENGLISH_WORKFLOW=direct` 保留单次批量解题基线供对比。
 

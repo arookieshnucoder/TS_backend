@@ -7,6 +7,7 @@ import { hash, retrievalText } from "./corpus.js";
 import { renderQuestion, type Embeddings, type MathQuestion } from "./contracts.js";
 import { deterministicChecks } from "./checks.js";
 import { verifiedSolution, type VerifiedMathSolution } from "./verified-solution.js";
+/** 落盘向量索引，记录题库指纹、模型与维度，避免误用过期索引。 */
 export interface VectorIndex { version: 1; corpusHash: string; model: string; dimensions: number; ids: string[]; vectors: number[][]; }
 export function cosine(a: number[], b: number[]) {
     if (a.length !== b.length) throw new Error("Vector dimension mismatch");
@@ -29,9 +30,12 @@ export async function buildIndex(questions: MathQuestion[], embeddings: Embeddin
     await writeFile(temporary, JSON.stringify(index)); await rename(temporary, path);
     return index;
 }
+/** 一个检索命中，保存题目和综合、向量相似度分数。 */
 export interface Retrieved { question: MathQuestion; score: number; denseScore: number; }
 export type RetrievalMode = "dense" | "hybrid" | "lexical" | "rerank";
+/** 一次数学检索结果，包含命中、耗时、缓存及可选的程序核验结果。 */
 export interface Retrieval { hits: Retrieved[]; query: string; cacheHit: boolean; durationMs: number; mode: RetrievalMode; candidateIds?: string[]; stages?: Record<string,number>; checks?: Record<string, unknown>; verifiedSolution?:VerifiedMathSolution; }
+/** 数学题库检索器，提供向量、词法和重排策略，并生成不含评测标签的参考证据。 */
 export class MathRag {
     private readonly documents: string[][];
     private readonly frequencies: Map<string, number>;

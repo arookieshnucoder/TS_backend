@@ -3,7 +3,7 @@ import type { ContextConfig } from "./context/config.js";
 import type { ContextCompressor } from "./context/services.js";
 import type { TokenBudget } from "./context/tokens.js";
 
-/** Per-run prompt state. Conversation storage is never truncated or rewritten. */
+/** 构建下一次模型输入，保留完整工具回合，并在接近预算时压缩上下文。 */
 export class ContextBuilder {
     private memory: AgentMessage[];
     private compactedRounds = 0;

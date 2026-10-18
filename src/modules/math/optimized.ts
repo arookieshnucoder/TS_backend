@@ -7,6 +7,7 @@ import type { MathVariant } from "./contracts.js";
 import { verifiedProbability } from "./arithmetic.js";
 import type { RegisteredTool } from "../harness/tool-contracts.js";
 
+/** 基于已准备证据求解数学题，支持程序概率计算和必要的独立复核。 */
 export class EvidenceMathAgent implements AgentWorkflow {
     constructor(private readonly review = false, private readonly independentReview = true) {}
     async run(runtime: AgentRuntime, signal?: AbortSignal): Promise<AgentResult> {
@@ -41,7 +42,7 @@ export class EvidenceMathAgent implements AgentWorkflow {
         return { content: turn.content, modelTurns: 1, toolCalls: 1 };
     }
 }
-/** Five ablations share the same model and differ only in declared workflow settings. */
+/** 数学优化实验包装器，统一完成批量检索、条件更正与证据准备。 */
 export class OptimizedMathHarness implements HarnessRunner {
     constructor(private readonly inner: HarnessRunner, private readonly rag: MathRag, private readonly variant: MathVariant) {}
     async run(input: HarnessInput, signal?: AbortSignal) {

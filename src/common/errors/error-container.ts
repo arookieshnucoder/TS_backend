@@ -12,6 +12,7 @@ const definitions = {
     INTERNAL_ERROR: [HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred"],
 } as const;
 export type ErrorCode = keyof typeof definitions;
+/** 集中定义并转换业务错误，避免控制器、服务和模型适配器各写一套错误映射。 */
 export class ErrorContainer {
     create(code: ErrorCode, message?: string): AppError {
         const [status, defaultMessage] = definitions[code];

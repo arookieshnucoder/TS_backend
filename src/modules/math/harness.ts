@@ -1,6 +1,6 @@
 import type { HarnessInput, HarnessRunner } from "../harness/agent-harness.js";
 import { MathRag } from "./rag.js";
-/** Harness-only ablation leaves AskAgent intact, supplying evidence before the first decision turn. */
+/** 数学检索实验包装器，在通用工作流开始前注入检索证据。 */
 export class MathRetrievalHarness implements HarnessRunner {
     constructor(private readonly inner: HarnessRunner, private readonly rag: MathRag) {}
     async run(input: HarnessInput, signal?: AbortSignal) {

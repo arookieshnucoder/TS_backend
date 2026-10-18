@@ -8,7 +8,7 @@ export type ChatToolFactory = (session: ChatSession, signal: AbortSignal | undef
     context: ChatAgentRunContext | undefined, runtime: HarnessToolContext) => Promise<RegisteredTool[]>;
 export type ChatTitleGenerator = (session: ChatSession, signal?: AbortSignal) => Promise<string>;
 
-/** Converts chat snapshots to a generic run; no workflow or provider fallback lives here. */
+/** 把会话快照转换为公共宿主输入，统一发现工具并传递请求和消息标识。 */
 export class HarnessChatAgent implements ChatAgent {
     constructor(private readonly harness: HarnessRunner, private readonly tools: ChatToolFactory,
         private readonly title: ChatTitleGenerator) { }

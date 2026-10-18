@@ -13,6 +13,7 @@ import type { ContextConfig } from "../harness/context/config.js";
 import type { AgentModel } from "../agent/model.js";
 import type { EvalCase } from "./contracts.js";
 
+/** 单次评测的工具环境，统计执行次数并提供统一清理入口。 */
 export interface EvaluationEnvironment {
     tools: RegisteredTool[]; executions: Record<string, number>; aliases: Record<string, string>; close(): Promise<void>;
 }

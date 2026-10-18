@@ -1,14 +1,9 @@
-import type { ChatSession, ChatMessage } from "../entity/chat-session.entity.js";
-import type { SessionStatus, SessionError } from "../domain/session-status.js";
-export interface SessionResponseDto {
-    id: string;
-    title: string;
+import type { ChatSession } from "../entity/chat-session.entity.js";
+/** 对外会话响应沿用实体字段；时间转为 ISO 字符串，内部 requestId 不对外输出。 */
+export interface SessionResponseDto extends Omit<ChatSession, "requestId" | "createdAt" | "updatedAt" | "modelRequestId"> {
     createdAt: string;
     updatedAt: string;
-    messages: ChatMessage[];
     modelRequestId: string | null;
-    sessionStatus: SessionStatus;
-    sessionError: SessionError | null;
 }
 export function toSessionResponse(session: ChatSession): SessionResponseDto {
     return {

@@ -11,6 +11,7 @@ import { percentile, rate } from "./statistics.js";
 import { sourceHash } from "./runner.js";
 import { readingAnswer } from "../reading/agent.js";
 
+/** 语文评测配置，控制材料策略、判分模型、并发和输出目录。 */
 export interface ReadingEvaluationOptions {
     out: string; split: "development" | "test"; variants: ReadingVariant[]; limit: number;
     concurrency: number; maxInputTokens: number; contextTokens: number; corpusPath?: string;

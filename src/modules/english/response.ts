@@ -16,7 +16,7 @@ export function canonicalEnglishResponse(content: string, task: EnglishTask): st
     for (const a of answers) explanation = explanation.replace(new RegExp(`((?:^|[\\n。！？!?；;])\\s*)(?:第\\s*${a.number}\\s*题\\s*答案|(?:Question|Q)\\s*${a.number}\\s*(?:Answer)?)[：:]\\s*[A-D](?=[\\s。.*]|$)`, "gi"), "$1");
     return explanation.trim() + "\n\n" + answers.map(a => `第${a.number}题答案：${a.choices[0]}`).join("\n");
 }
-/** Generic harness extension: output integrity, distinct from the unconfigured English semantic reviewer. */
+/** 检查英语答案的题号、唯一选项和依据格式，必要时请求有限次数的修正。 */
 export class EnglishResponseProcessor implements AgentResultProcessor {
     constructor(private readonly task: EnglishTask) {}
     async process(result: AgentResult, runtime: AgentRuntime, _context: unknown, signal?: AbortSignal): Promise<AgentResult> {

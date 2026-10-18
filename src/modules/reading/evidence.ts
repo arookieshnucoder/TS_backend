@@ -1,7 +1,9 @@
 import type { ReadingPassage } from "./contracts.js";
 import type { TokenBudget } from "../harness/context/tokens.js";
 
-export interface ReadingEvidence { summary?: string; paragraphs: { id: string; text: string }[]; omitted: number; }
+export type { PassageEvidence as ReadingEvidence } from "../subjects/contracts.js";
+import type { PassageEvidence as ReadingEvidence } from "../subjects/contracts.js";
+export { fullPassageEvidence as fullReadingEvidence } from "../subjects/contracts.js";
 const quoted = (text: string) => [...text.matchAll(/[“「"‘]([^”」"’]{2,100})[”」"’]/g)].map(match => match[1]!);
 const terms = (text: string) => {
     const result = new Set(text.toLowerCase().match(/[a-z0-9]{2,}/g) ?? []);
@@ -45,8 +47,4 @@ export function selectReadingEvidence(passage: ReadingPassage, query: string, bu
     }
     const paragraphs = render();
     return { paragraphs, omitted: passage.paragraphs.length - paragraphs.length };
-}
-
-export function fullReadingEvidence(passage: ReadingPassage): ReadingEvidence {
-    return { paragraphs: passage.paragraphs.map((text, index) => ({ id: `P${index + 1}`, text })), omitted: 0 };
 }

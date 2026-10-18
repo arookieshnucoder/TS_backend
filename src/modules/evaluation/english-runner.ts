@@ -11,11 +11,13 @@ import { percentile, rate } from "./statistics.js";
 import { sourceHash } from "./runner.js";
 import type { EnglishWorkflow } from "../english/response.js";
 
+/** 英语评测配置，指定数据划分、策略、并发和输出位置。 */
 export interface EnglishEvaluationOptions {
     out: string; split: "knowledge" | "development" | "test" | "all"; variants: EnglishVariant[]; limit: number;
     concurrency: number; maxInputTokens: number; contextTokens: number; thinking?: "enabled" | "disabled"; workflow?: EnglishWorkflow;
     corpusPath?: string; corpus?: EnglishCorpus; modelFactory?: () => AgentModel;
 }
+/** 一次英语评测任务，把同一材料的待答题目组合成求解输入。 */
 export interface EnglishEvaluationJob {
     passageId: string; variant: EnglishVariant; durationMs: number; modelCalls: number; modelAttempts: number; toolCalls: number; inputTokens: number; outputTokens: number;
     answers: { id: string; number: number; kind: string; split: string; category: string; expected: string; actual: string | null; passed: boolean }[]; error?: string;

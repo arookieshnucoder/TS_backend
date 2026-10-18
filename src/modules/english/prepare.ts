@@ -1,7 +1,9 @@
 import { authoredEnglish } from "./authored-bank.js";
 import { englishHash, validateEnglishCorpus } from "./corpus.js";
 import type { EnglishCorpus, EnglishQuestion, EnglishPassage } from "./contracts.js";
+/** RACE 原始数据行，保留来源行号供清洗和归档追溯。 */
 export interface RaceRow { example_id: string; article: string; question: string; options: string[]; answer: string; row: number; }
+/** 一份 RACE 数据源及其原始划分，防止训练和测试材料混用。 */
 export interface RaceSource { split: "train" | "validation" | "test"; rows: RaceRow[]; }
 const canonical = (text: string) => text.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
 const category = (stem: string) => /not true|except|not correct|false/i.test(stem) ? "negation" : /mainly|main idea|best title|purpose/i.test(stem) ? "main-idea" :

@@ -6,6 +6,7 @@ import { parseCreateSessionDto } from "../dto/create-session.dto.js";
 import { toSessionResponse } from "../dto/session-response.dto.js";
 import { sendSessionResult } from "../dto/session-result-response.js";
 
+/** 聊天 HTTP 控制器，验证输入并把会话服务结果转换为响应。 */
 export class ChatSessionController {
     constructor(private readonly service: ChatSessionService, private readonly errors: ErrorContainer = errorContainer) { }
     readonly create: RequestHandler = async (request, response) => {

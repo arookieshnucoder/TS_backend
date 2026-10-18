@@ -38,6 +38,7 @@ export type ToolInput<P extends Parameters> = {
     [K in keyof P]: P[K] extends ToolParameter<infer T> ? T : never;
 };
 
+/** 定义原生工具时提供的名称、参数、业务校验和执行逻辑。 */
 export interface ToolOptions<P extends Parameters> {
     name: string;
     description: string;

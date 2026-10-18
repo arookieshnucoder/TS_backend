@@ -55,6 +55,7 @@ export class GlmModel implements AgentModel {
                 { usage: { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens } } : {}) };
     }
 }
+/** 调用 GLM 向量接口并验证维度和返回顺序，供数学检索和题目入库使用。 */
 export class GlmEmbeddings implements Embeddings {
     readonly model = "embedding-3";
     constructor(private readonly config: LlmConfig, readonly dimensions = 256) {}

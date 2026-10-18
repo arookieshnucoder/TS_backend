@@ -123,19 +123,21 @@ test("custom chat tool wiring does not read the default repository or construct 
 
 test("failed title generation preserves the actual existing title instead of manufacturing a placeholder", async () => {
   const repository = new InMemoryChatSessionRepository();
-  let failures = 0, titleCalls = 0;
+  let titleCalls = 0;
   const agent = createChatAgent(repository, { async turn(messages) {
     if (messages[0]!.content.startsWith("Generate")) { titleCalls++; return { content: "bad", toolCalls: [] }; }
     return { content: "answer", toolCalls: [] };
   } }, () => new LocalMemorySearch(new TokenBudget(config.context)), config.context,
-  { info() {}, error(event) { if (event === "context.title_failed") failures++; } });
+  logger);
   const service = new ChatSessionService(repository, agent);
   const session = await service.create("用户自定标题", "request");
   const result = await service.send(session.id, "question");
   assert.equal(result.sessionStatus, "finished");
   assert.equal(result.title, session.title);
   assert.equal(result.messages.length, 2);
-  assert.equal(titleCalls, 2); assert.equal(failures, 1);
+  assert.equal(titleCalls, 2);
+  // 标题端口应传播异常，由会话服务负责保留已提交答案。
+  await assert.rejects(agent.titleFor(result), /invalid session title twice/);
 });
 
 test("title errors and cancellation preserve the already committed answer", async () => {

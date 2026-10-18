@@ -1,3 +1,4 @@
+/** 结构化日志接口，事件名与字段分开传入，方便替换日志实现。 */
 export interface Logger {
     info(event: string, fields?: Record<string, unknown>): void;
     error(event: string, fields?: Record<string, unknown>): void;

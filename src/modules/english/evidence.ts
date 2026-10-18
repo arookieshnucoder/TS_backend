@@ -1,9 +1,8 @@
 import type { TokenBudget } from "../harness/context/tokens.js";
 import type { EnglishPassage } from "./contracts.js";
-export interface EnglishEvidence { paragraphs: { id: string; text: string }[]; omitted: number; summary?: string; }
-export function fullEnglishEvidence(passage: EnglishPassage): EnglishEvidence {
-    return { paragraphs: passage.paragraphs.map((text, i) => ({ id: `P${i + 1}`, text })), omitted: 0 };
-}
+export type { PassageEvidence as EnglishEvidence } from "../subjects/contracts.js";
+import type { PassageEvidence as EnglishEvidence } from "../subjects/contracts.js";
+export { fullPassageEvidence as fullEnglishEvidence } from "../subjects/contracts.js";
 /** Verbatim English sentences plus neighbors protect negation, pronoun antecedents and cloze context. */
 export function selectEnglishEvidence(passage: EnglishPassage, query: string, budget: number, tokens: TokenBudget): EnglishEvidence {
     const stop = new Set(["the", "and", "which", "what", "following", "passage", "according", "true", "false", "that", "this", "with", "from", "question"]);

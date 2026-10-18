@@ -11,6 +11,7 @@ import type { MathVariant } from "../modules/math/contracts.js";
 import { ALL_MATH_VARIANTS } from "../modules/math/contracts.js";
 import { READING_VARIANTS, type ReadingVariant } from "../modules/reading/contracts.js";
 import { ENGLISH_VARIANTS, type EnglishVariant } from "../modules/english/contracts.js";
+import type { SchoolSubject } from "../modules/subjects/contracts.js";
 
 
 /**
@@ -19,7 +20,7 @@ import { ENGLISH_VARIANTS, type EnglishVariant } from "../modules/english/contra
  */
 export interface AppConfig {
     verification: { enabled: boolean; model: string; baseUrl: string; apiKey?: string; timeoutMs: number; maxRevisions: number };
-    schoolSubject: "math" | "chinese" | "english" | "auto";
+    schoolSubject: SchoolSubject | "auto";
     english: { variant: EnglishVariant; corpusPath: string; contextTokens: number; workflow: "direct" | "grounded"; thinking: "enabled" | "disabled" };
     reading: { variant: ReadingVariant; corpusPath: string; contextTokens: number };
     math: { variant: MathVariant | "general"; corpusPath: string; indexPath: string; submissionsPath: string; embeddingBaseUrl: string; thinking: "enabled" | "disabled" };
@@ -28,14 +29,14 @@ export interface AppConfig {
     mcp: { configFile: string; adminToken?: string; timeoutMs: number };
     harness: HarnessConfig;
     context: ContextConfig;
-    // 后端端口
+    // 会话 JSON 文件的保存目录
     sessionDataDir: string;
     llmApiKey?: string;
     llmModel: string;
     llmTimeoutMs: number;
     llmBaseUrl?: string;
     port: number;
-    // 前端监听端口
+    // 允许跨域访问的前端来源（协议、主机及端口）
     frontendOrigin: string;
     // 开发环境
     nodeEnv: "development" | "test" | "production";
@@ -50,7 +51,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
     if (!/^\d+$/.test(rawPort) || !Number.isInteger(port) || port < 1 || port > 65535) {
         throw new Error("PORT must be an integer between 1 and 65535");
     }
-    // 本地默认只能用3000端口作为前端origin
+    // 未配置时允许本机 3000 端口，可通过环境变量指定其他 HTTP(S) 来源。
     const frontendOrigin = env.FRONTEND_ORIGIN ?? "http://localhost:3000";
     let origin: URL;
     try {

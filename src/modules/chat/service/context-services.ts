@@ -13,6 +13,7 @@ export function validTitle(title: string): boolean {
     return /^[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*(?: [A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*){4,9}$/.test(title);
 }
 
+/** 根据前五轮用户对话生成合规标题，限制输入长度并校验标题格式。 */
 export class SessionTitleGenerator {
     constructor(private readonly model: AgentModel, private readonly tokens: TokenBudget, private readonly config: ContextConfig) { }
     async execute(session: ChatSession, signal?: AbortSignal): Promise<string> {
@@ -38,6 +39,7 @@ export class SessionTitleGenerator {
     }
 }
 
+/** 从候选会话中检索相关历史，再按上下文预算压缩可引用的内容。 */
 export class SharedMemoryRetriever {
     constructor(private readonly search: MemorySearch, private readonly compression: TextCompressor,
         private readonly config: ContextConfig) { }

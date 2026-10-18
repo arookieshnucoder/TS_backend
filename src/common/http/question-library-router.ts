@@ -4,7 +4,7 @@ import { AppError } from "../errors/app-error.js";
 /** Shared pagination, opt-in references, and lazy availability handling for subject libraries. */
 export function passageQuestionRouter<P extends { id: string; title: string }, Q extends { id: string; passageId: string; answer: string }, T>(
     library: { corpus(): Promise<{ scope: string; passages: P[]; knowledge: Q[] }>; question(id: string): Promise<T | undefined> },
-    policy: { subject: string; role: string; variant: string; path: string; errorPrefix: string; question(q: Q): object; extraCapabilities?: object }) {
+    policy: { subject: string; role: string; variant: string; path: string; errorPrefix: string; question(q: Q): object; extraCapabilities?: object; notFoundMessage?: string }) {
     const router = Router();
     router.get("/capabilities", (_req, res) => res.json({ data: { role: policy.role, variant: policy.variant, text: true, questionsPath: `${policy.path}/questions`, ...policy.extraCapabilities } }));
     router.get("/questions", async (req, res) => {
@@ -17,7 +17,7 @@ export function passageQuestionRouter<P extends { id: string; title: string }, Q
     });
     router.get("/questions/:id", async (req, res) => {
         const task = await library.question(req.params.id!);
-        if (!task) throw new AppError(404, `${policy.errorPrefix}_QUESTION_NOT_FOUND`, "题目不存在。");
+        if (!task) throw new AppError(404, `${policy.errorPrefix}_QUESTION_NOT_FOUND`, policy.notFoundMessage ?? "题目不存在。");
         const reference = req.query.reference === "true" ? (await library.corpus()).knowledge.find(q => q.id === req.params.id)?.answer : undefined;
         res.json({ data: { ...task, ...(reference ? { reference } : {}) } });
     });

@@ -7,7 +7,7 @@ export const MATH_INSTRUCTIONS = `你是专门面向中国初中学生的数学�
 求解：使用初中知识，展示关键式子和结论；注意分类讨论、分母不为零、平方根非负、增长率次数、概率是否放回。
 核验：代回原条件，独立检查每个选项，尤其端点、单位、符号和漏根。几何题可用坐标法验证。
 输出：给出思路、关键计算、简短核验与答案。简单题用3至5行、约120字，复杂题保留必要推导；引用使用的例题ID。先把算得结果与当前选项原文逐一核对，再确定字母，不能沿用熟悉例题的选项顺序。最后单独一行“答案：A”一类的选择结论（非选择题输出实际结果）。不能宣称运行了没有调用的验证工具，也不能为了匹配选项擅自改变题意或断言题目有笔误。`;
-/** Retrieval is a workflow phase, not an optional LLM decision; one solve turn avoids discovery overhead. */
+/** 数学解题工作流，先获取检索证据，再求解并按配置核验结果。 */
 export class MathAgent implements AgentWorkflow {
     constructor(private readonly retrievalPreparedByHarness = false, private readonly verifiedSolve?: (question: string) => VerifiedMathSolution | undefined, private readonly independentReview = true) {}
     async run(runtime: AgentRuntime, signal?: AbortSignal): Promise<AgentResult> {

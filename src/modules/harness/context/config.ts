@@ -1,3 +1,4 @@
+/** 上下文预算与检索配置，控制分块、压缩阈值、分词器和向量服务。 */
 export interface ContextConfig {
     maxInputTokens: number;
     chunkTokens: number;

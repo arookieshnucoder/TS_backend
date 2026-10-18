@@ -1,5 +1,6 @@
 export const SessionStatus = { PENDING: "pending", FINISHED: "finished", FAILURE: "failure" } as const;
 export type SessionStatus = typeof SessionStatus[keyof typeof SessionStatus];
+/** 会话公开错误信息，用于持久化失败状态并传给前端展示。 */
 export interface SessionError {
     code: string;
     message: string;

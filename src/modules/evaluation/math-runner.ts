@@ -23,6 +23,7 @@ export function permuteQuestion(q: MathQuestion, repeat: number): MathQuestion {
     const shift = (repeat - 1) % 4;
     return { ...q, options: [...q.options.slice(shift), ...q.options.slice(0, shift)], answer: "ABCD"[("ABCD".indexOf(q.answer) - shift + 4) % 4]! };
 }
+/** 数学评测配置，指定题库、模型、实验策略和结果输出。 */
 export interface MathEvalOptions {
     split: "development" | "test"; out: string; repeats: number; seed: number; variants: MathVariant[];
     timeoutMs: number; concurrency: number; thinking: "enabled" | "disabled";

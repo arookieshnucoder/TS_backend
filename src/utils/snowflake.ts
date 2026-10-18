@@ -1,4 +1,5 @@
 // 41-bit milliseconds + 10-bit worker + 12-bit sequence. Return strings: JS numbers lose precision.
+/** 生成按时间排序的唯一 ID，同一毫秒内用序号区分请求和消息。 */
 export class SnowflakeIdGenerator {
     static readonly epoch = Date.UTC(2024, 0, 1);
     private lastTimestamp = -1;

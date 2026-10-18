@@ -2,6 +2,7 @@ import type { AgentModel } from "../../agent/model.js";
 import type { ContextConfig } from "./config.js";
 import type { TokenBudget } from "./tokens.js";
 
+/** 调用当前运行模型压缩文本，并检查压缩结果是否符合目标预算。 */
 export class ContextCompressor {
     constructor(private readonly model: AgentModel, private readonly tokens: TokenBudget, private readonly config: ContextConfig) { }
     async execute({ text, budget }: { text: string; budget: number }, signal?: AbortSignal): Promise<string> {

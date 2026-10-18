@@ -1,5 +1,5 @@
 import { visibleAnswer } from "../agent/visible-answer.js";
-import { AskAgent } from "../agent/ask-agent.js";
+import { answerPassage, preparePassage } from "../subjects/passage-agent.js";
 import { ModelProtocolError } from "../agent/model.js";
 import type { AgentResult, AgentRuntime, AgentWorkflow } from "../agent/contracts.js";
 import { englishQuestions, type EnglishTask } from "./contracts.js";
@@ -23,16 +23,13 @@ export function englishConclusions(answer: string, number: number): string[] {
     const visible = visibleAnswer(answer).replace(/\*\*|__/g, "");
     return [...visible.matchAll(pattern)].map(m => m[1]!.toUpperCase());
 }
+/** 英语作答策略；完整阅读可逐题隔离求解，原文不完整时按需补读。 */
 export class EnglishAgent implements AgentWorkflow {
     constructor(private readonly allowLookup: boolean, private readonly focusedTask?: EnglishTask) {}
     async run(runtime: AgentRuntime, signal?: AbortSignal): Promise<AgentResult> {
-        let messages = await runtime.prepare([], !this.allowLookup, signal);
-        const evidence = messages.find(m => m.role === "tool" && m.toolCallId === "english-prepare-1");
-        if (!evidence) throw new Error("ENGLISH_EVIDENCE_MISSING");
-        let complete = false;
-        try { const parsed = JSON.parse(evidence.content); if (parsed.error) throw new Error(); complete = parsed.completeOriginal === true; }
-        catch { throw new Error("ENGLISH_EVIDENCE_UNAVAILABLE"); }
-        if (complete && this.focusedTask?.questions.every(q => q.kind === "reading")) {
+        const prepared = await preparePassage(runtime, "english", this.allowLookup, signal);
+        let messages = prepared.messages;
+        if (prepared.evidence.completeOriginal === true && this.focusedTask?.questions.every(q => q.kind === "reading")) {
             const answers: string[] = [];
             let fallbackTurns = 0;
             let batch = "";
@@ -49,7 +46,7 @@ export class EnglishAgent implements AgentWorkflow {
                 const values = englishConclusions(content, number);
                 return values.length && new Set(values).size === 1 ? values[0] : undefined;
             };
-            const original = JSON.parse(evidence.content).paragraphs;
+            const original = prepared.evidence.paragraphs;
             const current = [...messages].reverse().find(m => m.role === "user")?.content ?? "";
             const marker = current.lastIndexOf("\n[当前要求]\n"), requirement = marker >= 0 ? current.slice(marker) : "";
             for (const [index, question] of this.focusedTask.questions.entries()) {
@@ -89,18 +86,6 @@ export class EnglishAgent implements AgentWorkflow {
             runtime.event("english.focus.completed", { questions: this.focusedTask.questions.length });
             return { content: answers.join("\n\n"), modelTurns: fallbackTurns, toolCalls: 0 };
         }
-        if (this.allowLookup && !complete) {
-            try {
-                const result = await new AskAgent().run(runtime, signal);
-                return { ...result, content: visibleAnswer(result.content, "ENGLISH_VISIBLE_ANSWER_MISSING") };
-            } catch (error) {
-                signal?.throwIfAborted();
-                if (!(error instanceof ModelProtocolError)) throw error;
-                runtime.event("english.protocol_fallback", { code: error.code, mode: "english-evidence-final" });
-            }
-        }
-        if (this.allowLookup) messages = await runtime.prepare([], true, signal);
-        const turn = await runtime.complete(messages, [], signal);
-        return { content: visibleAnswer(turn.content, "ENGLISH_VISIBLE_ANSWER_MISSING"), modelTurns: 1, toolCalls: 0 };
+        return answerPassage(runtime, "english", this.allowLookup, prepared, signal);
     }
 }

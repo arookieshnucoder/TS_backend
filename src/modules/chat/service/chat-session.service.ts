@@ -7,6 +7,7 @@ import type { RunRecorder, RunStatus, RunTraceStore } from "../../observability/
 import { failureCode } from "../../harness/recovery.js";
 import { abortable } from "../../harness/cancellation.js";
 
+/** 会话业务服务，串行处理同一会话的发送，保存结果并处理超时、失败和标题更新。 */
 export class ChatSessionService {
     private readonly activeSessions = new Set<string>();
     private initialization?: Promise<void>;

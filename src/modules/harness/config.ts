@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { recoveryPolicy, type RecoveryPolicy } from "./recovery.js";
 
+/** 从环境读取并验证的运行时配置，供应用组装时传入公共宿主。 */
 export interface HarnessConfig {
     recovery: RecoveryPolicy;
     workspaceRoot?: string;

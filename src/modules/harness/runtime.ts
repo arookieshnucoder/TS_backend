@@ -8,12 +8,13 @@ import type { ToolRegistry } from "./tool-registry.js";
 import { abortable } from "./cancellation.js";
 import { DelegationError } from "./subagents.js";
 
+/** 违反运行预算或工具协议的错误，业务工作流不能绕过此类限制。 */
 export class HarnessPolicyError extends Error {
     constructor(readonly code: string, message: string) { super(message); this.name = "HarnessPolicyError"; }
 }
 const reject = (code: string, message: string): never => { throw new HarnessPolicyError(code, message); };
 
-/** Execution policy is enforced here for every workflow, including injected workflows. */
+/** 向工作流提供模型、上下文和工具能力，所有调用都受本轮共享预算与取消信号约束。 */
 export class HarnessRuntime implements AgentRuntime {
     private modelInvocations = 0;
     // 决策轮数控制工作流预算；协议纠错额外调用独立计数，仍受整轮总超时和全局纠错上限约束。

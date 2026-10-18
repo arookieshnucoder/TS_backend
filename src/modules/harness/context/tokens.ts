@@ -3,6 +3,7 @@ import type { ContextConfig } from "./config.js";
 
 const encodings = new Map<string, ReturnType<typeof getEncoding>>();
 
+/** 统一估算、计算和截断 token，为上下文、工具输出和检索证据提供预算检查。 */
 export class TokenBudget {
     private readonly encoding;
     constructor(private readonly config: ContextConfig) {

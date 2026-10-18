@@ -1,6 +1,8 @@
 import { isReadingRequest } from "../modules/reading/library.js";
 import { isEnglishRequest } from "../modules/english/library.js";
-export type SchoolSubject = "math" | "chinese" | "english";
+import type { SchoolSubject } from "../modules/subjects/contracts.js";
+export type { SchoolSubject } from "../modules/subjects/contracts.js";
+/** 优先识别当前显式学科，再识别题型；普通追问沿用最近的学科，初始默认数学。 */
 export function routeSchoolSubject(current: string, history: readonly { role: string; content: string }[]): SchoolSubject {
     if (/\[数学\]|【数学】/.test(current)) return "math";
     if (/\[语文(?:题[：:].*)?\]|【语文】/.test(current)) return "chinese";
@@ -10,7 +12,7 @@ export function routeSchoolSubject(current: string, history: readonly { role: st
     const previous = [...history].reverse().find(m => m.role === "user" && (isEnglishRequest(m.content) || isReadingRequest(m.content) || /\[数学\]|方程|函数|抛物线|三角形/.test(m.content)));
     return previous ? isEnglishRequest(previous.content) ? "english" : isReadingRequest(previous.content) ? "chinese" : "math" : "math";
 }
-/** Keep original messages from the selected subject, including its follow-ups, without importing another workflow. */
+/** 只保留目标学科的原始消息及追问，避免把另一学科的文章或助手答案带入本轮。 */
 export function subjectHistory<T extends { role: string; content: string }>(history: readonly T[], subject: SchoolSubject): T[] {
     const retained: T[] = [], preceding: T[] = [];
     let active: SchoolSubject = "math";

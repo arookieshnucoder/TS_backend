@@ -16,6 +16,7 @@ import { percentile, rate } from "./statistics.js";
 import { redact, environmentSecrets } from "../../common/logging/redaction.js";
 import { sourceHash } from "./runner.js";
 
+/** 数学优化实验的一个场景，包含历史、期望结论及条件缺失标记。 */
 export interface OptimizationCase {id:string;category:string;question:string;history:AgentMessage[];expected:string[];missing?:boolean;}
 export function stressCases(c:MathCorpus):OptimizationCase[] {
     const cases:OptimizationCase[]=[];
@@ -48,6 +49,7 @@ export function retrievalScores(ids:string[],relevant:string[],k:number) {
     const ideal=Array.from({length:Math.min(k,gold.size)},(_,i)=>1/Math.log2(i+2)).reduce((a,b)=>a+b,0);
     return {recall:hits.length/gold.size,mrr:rank<0?0:1/(rank+1),ndcg:dcg/ideal};
 }
+/** 数学优化实验配置，控制策略对比、重复次数、缓存与检索资源。 */
 export interface OptimizationOptions {out:string;suite:"development"|"test"|"stress";variants:MathVariant[];repeats:number;concurrency:number;timeoutMs:number;limit?:number;ragOnly?:boolean;cache?:"cold"|"warm";corpusPath?:string;indexPath?:string;modelFactory?:()=>AgentModel;rag?:MathRag;progress?:(text:string)=>void;}
 const pct=(values:number[],p:number)=>values.length?percentile(values,p):null;
 const avg=(values:number[])=>values.length?values.reduce((a,b)=>a+b,0)/values.length:null;

@@ -1,19 +1,14 @@
+import { CorpusLibrary } from "../subjects/corpus-library.js";
 import { AppError } from "../../common/errors/app-error.js";
 import { choiceOptionParts } from "../harness/choice-text.js";
 import { englishHash, loadEnglishCorpus } from "./corpus.js";
-import { englishTask, type EnglishCorpus, type EnglishPassage, type EnglishQuestion, type EnglishTask } from "./contracts.js";
+import { englishTask, type EnglishCorpus, type EnglishPassage, type EnglishTask } from "./contracts.js";
 
-export class EnglishLibrary {
-    private pending?: Promise<EnglishCorpus>;
-    constructor(private readonly path: string) {}
-    corpus(): Promise<EnglishCorpus> {
-        return this.pending ??= loadEnglishCorpus(this.path).catch(() => { this.pending = undefined; throw new AppError(503, "ENGLISH_CORPUS_UNAVAILABLE", "英语题库暂不可用，请直接提供英文原文和完整选择题。"); });
-    }
-    async question(id: string): Promise<EnglishTask | undefined> {
-        const corpus = await this.corpus(), question = corpus.knowledge.find(q => q.id === id);
-        if (!question) return undefined;
-        const passage = corpus.passages.find(p => p.id === question.passageId);
-        return passage ? englishTask(passage, [question]) : undefined;
+/** 英语题库入口，沿用公共延迟加载逻辑；解题任务只保留题干与选项。 */
+export class EnglishLibrary extends CorpusLibrary<EnglishCorpus, EnglishTask> {
+    constructor(path: string) {
+        super(() => loadEnglishCorpus(path), (passage, question) => englishTask(passage, [question]),
+            () => new AppError(503, "ENGLISH_CORPUS_UNAVAILABLE", "英语题库暂不可用，请直接提供英文原文和完整选择题。"));
     }
 }
 export function unsupportedEnglish(text: string): boolean {

@@ -1,23 +1,14 @@
 import { loadReadingCorpus, readingHash, readingLayout } from "./corpus.js";
 import { readingTask, type ReadingCorpus, type ReadingTask } from "./contracts.js";
 import { AppError } from "../../common/errors/app-error.js";
+import { CorpusLibrary } from "../subjects/corpus-library.js";
 import { readingOptionParts } from "./question-text.js";
 
-/** One lazy corpus owner shared by browsing and chat. Math requests never load reading assets. */
-export class ReadingLibrary {
-    private pending?: Promise<ReadingCorpus>;
-    constructor(private readonly path: string) {}
-    corpus(): Promise<ReadingCorpus> {
-        return this.pending ??= loadReadingCorpus(this.path).catch(() => {
-            this.pending = undefined;
-            throw new AppError(503, "READING_CORPUS_UNAVAILABLE", "语文题库暂不可用，请提供完整阅读原文和题目。");
-        });
-    }
-    async question(id: string): Promise<ReadingTask | undefined> {
-        const corpus = await this.corpus();
-        const question = corpus.knowledge.find(question => question.id === id);
-        if (!question) return undefined;
-        return readingTask(corpus.passages.find(passage => passage.id === question.passageId)!, [question]);
+/** 语文题库入口，浏览和解题共用缓存；投影时排除参考答案。 */
+export class ReadingLibrary extends CorpusLibrary<ReadingCorpus, ReadingTask> {
+    constructor(path: string) {
+        super(() => loadReadingCorpus(path), (passage, question) => readingTask(passage, [question]),
+            () => new AppError(503, "READING_CORPUS_UNAVAILABLE", "语文题库暂不可用，请提供完整阅读原文和题目。"));
     }
 }
 

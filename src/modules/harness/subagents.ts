@@ -6,6 +6,7 @@ import type { RegisteredTool } from "./tool-contracts.js";
 import { abortable } from "./cancellation.js";
 import { failureCode } from "./recovery.js";
 
+/** 宿主注册的子 agent 配置，明确限定其模型、工作流、工具和可继续委派的对象。 */
 export interface SubAgentDefinition {
     name: string;
     description: string;
@@ -17,18 +18,21 @@ export interface SubAgentDefinition {
     /** Child agents cannot delegate unless the host grants named capabilities here. */
     delegates?: string[];
 }
+/** 整轮共享的子任务上限，控制调用次数、深度、并发、超时和输出长度。 */
 export interface DelegationLimits { maxCalls: number; maxDepth: number; maxConcurrent: number; timeoutMs: number; maxOutputCharacters: number; }
 export const DEFAULT_DELEGATION_LIMITS: DelegationLimits = {
     maxCalls: 8, maxDepth: 2, maxConcurrent: 2, timeoutMs: 120000, maxOutputCharacters: 16000,
 };
+/** 当前子任务的授权范围和层级，携带调用统计供父任务汇总。 */
 export interface SubAgentScope { depth: number; taskId?: string; allowed: readonly string[]; usage?: { modelTurns: number; toolCalls: number }; }
 type Event = (name: string, fields?: Record<string, unknown>) => void;
 
+/** 子任务执行或授权失败，携带错误码和已产生的调用统计。 */
 export class DelegationError extends Error {
     constructor(readonly code: string, readonly usage?: { modelTurns: number; toolCalls: number }) { super(code); this.name = "DelegationError"; }
 }
 
-/** Shared across one root run, including descendants. No state leaks between requests. */
+/** 一轮执行内共享的子任务注册表和预算，不跨请求复用运行状态。 */
 export class SubAgentSession {
     readonly definitions: ReadonlyMap<string, SubAgentDefinition>;
     readonly limits: DelegationLimits;

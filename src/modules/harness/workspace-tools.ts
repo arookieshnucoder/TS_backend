@@ -10,7 +10,7 @@ const allowedName = (name: string) => !blockedDirectories.has(name.toLowerCase()
     !/(^|[._-])(secret|secrets|credential|credentials|id_rsa|id_ed25519)([._-]|$)/i.test(name) && !name.toLowerCase().endsWith(".lock");
 const readable = (name: string) => allowedName(name) && (extensions.has(extname(name).toLowerCase()) || ["Dockerfile", "LICENSE"].includes(name));
 
-/** Bounded read-only workspace view: no shell and no model-controlled absolute paths. */
+/** 受根目录和排除路径约束的工作区读取器，供文件检索工具使用。 */
 export class WorkspaceReader {
     private readonly root: string;
     private exclusions?: Promise<string[]>;

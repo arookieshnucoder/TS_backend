@@ -37,7 +37,7 @@ test("English modules implement generic contracts and never import mathematics, 
         assert.doesNotMatch(source, /from\s+["'][^"']*(?:\/reading\/|\/math\/|\/chinese\/|\/language\/)/);
     }
     assert.match(await readFile("src/modules/english/agent.ts", "utf8"), /implements AgentWorkflow/);
-    assert.match(await readFile("src/modules/english/harness.ts", "utf8"), /implements HarnessRunner/);
+    assert.match(await readFile("src/modules/english/harness.ts", "utf8"), /extends PassageHarness/);
 });
 
 test("corpus rejects answer, option, type, article and family leakage errors", () => {

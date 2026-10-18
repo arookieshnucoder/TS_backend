@@ -1,5 +1,6 @@
 import { errorContainer, type ErrorContainer } from "../../../common/errors/error-container.js";
 
+/** 创建会话的请求体，只接受经过校验的会话标题。 */
 export interface CreateSessionDto { title: string }
 
 // TypeScript types are erased at runtime: HTTP input still needs validation.

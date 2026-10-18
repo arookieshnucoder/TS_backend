@@ -16,6 +16,7 @@ import { grade } from "./graders.js";
 import { summarize, compare, assertComparable } from "./statistics.js";
 import type { EvalCase, EvalDataset, EvalEvent, EvalMode, EvalProfile, EvalVariant, EvalReport, ScriptTurn, Trial, Outcome } from "./contracts.js";
 
+/** 通用 agent 评测配置，可选择离线脚本或真实模型及恢复策略。 */
 export interface EvaluationOptions {
     mode: EvalMode; profile: EvalProfile; variant: EvalVariant; repeats: number; seed: number; directory: string;
     timeoutMs: number; minPassRate: number; maxRegression: number; config?: AppConfig; baseline?: EvalReport;

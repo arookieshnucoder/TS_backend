@@ -6,6 +6,7 @@ import type { ChatSession } from "../../../modules/chat/entity/chat-session.enti
 import type { ChatSessionRepository } from "../../../modules/chat/repository/chat-session.repository.js";
 
 // A single backend process owns the directory. Atomic replacement prevents partial reads.
+/** 将会话保存为 JSON 文件，读取时校验实体并还原日期类型。 */
 export class JsonChatSessionRepository implements ChatSessionRepository {
     constructor(private readonly directory: string) { }
     async save(session: ChatSession): Promise<void> {

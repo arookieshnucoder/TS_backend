@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Embeddings } from "./contracts.js";
 import { normalizeMath } from "./normalize.js";
-/** Incoming questions have their own vector collection; unverified model answers never enter the trusted KB. */
+/** 保存用户题目和解题结果，管理规范化文本、向量及提交状态。 */
 export class MathSubmissions {
     constructor(private readonly directory: string, private readonly embeddings: Embeddings) {}
     async ingest(text: string, signal?: AbortSignal, vectorize=true) {

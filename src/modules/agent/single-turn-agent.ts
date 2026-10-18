@@ -1,6 +1,6 @@
 import type { AgentRuntime, AgentWorkflow } from "./contracts.js";
 
-/** A small isolated worker. Hosts choose its model, instructions, and permitted capabilities. */
+/** 执行一次无工具模型调用，适合独立核验或单题求解等隔离任务。 */
 export class SingleTurnAgent implements AgentWorkflow {
     async run(runtime: AgentRuntime, signal?: AbortSignal) {
         const messages = await runtime.prepare([], true, signal);

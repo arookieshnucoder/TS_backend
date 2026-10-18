@@ -23,6 +23,7 @@ import { EnglishLibrary } from "../modules/english/library.js";
 import { createEnglishChatAgent } from "./english-chat-agent.js";
 
 
+/** 应用启动后共享的依赖集合；学科题库按需加载，会话服务只依赖 ChatAgent 接口。 */
 export interface AppDependencies {
     englishLibrary?: EnglishLibrary;
     readingLibrary?: ReadingLibrary;

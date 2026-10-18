@@ -2,6 +2,7 @@ import type { AgentModel } from "../agent/model.js";
 import type { AgentMessage, ToolDefinition } from "../agent/contracts.js";
 import { abortable } from "./cancellation.js";
 
+/** 有限重试策略，分别限制模型和工具重试次数、退避等待及单次模型超时。 */
 export interface RecoveryPolicy {
     modelRetries: number;
     toolRetries: number;
@@ -9,6 +10,7 @@ export interface RecoveryPolicy {
     maxDelayMs: number;
     modelAttemptTimeoutMs: number;
 }
+/** 已显式配置的备用模型，名称用于日志和追踪，不根据错误临时猜测供应商。 */
 export interface NamedAgentModel { name: string; model: AgentModel; }
 export const DEFAULT_RECOVERY: RecoveryPolicy = {
     modelRetries: 2, toolRetries: 1, baseDelayMs: 250, maxDelayMs: 3000, modelAttemptTimeoutMs: 30000,
@@ -59,7 +61,7 @@ export async function retry<T>(operation: (attempt: number) => Promise<T>, retri
     }
 }
 
-/** Scoped to one run: a successful fallback remains selected for subsequent turns. */
+/** 每轮独立的模型恢复器；可重试错误耗尽重试后才切换备用模型，成功后沿用该模型。 */
 export class RecoveringModel implements AgentModel {
     private active = 0;
     private sequence = 0;

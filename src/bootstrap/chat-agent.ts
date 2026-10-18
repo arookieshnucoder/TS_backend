@@ -12,10 +12,10 @@ import { SessionTitleGenerator } from "../modules/chat/service/context-services.
 import { HarnessChatAgent, type ChatToolFactory, type ChatTitleGenerator } from "../modules/chat/service/harness-chat-agent.js";
 import { createMemoryTools } from "../modules/chat/service/memory-tools.js";
 import { createWorkspaceTools } from "../modules/harness/workspace-tools.js";
-import { abortable } from "../modules/harness/cancellation.js";
 import { mathAnalyzeTool, mathCalculateTool } from "../modules/math/task-tools.js";
 import { taskPlanTool } from "../modules/harness/task-tools.js";
 
+/** 通用聊天入口的组装选项，可替换工作流、工具工厂和标题生成器。 */
 export interface ChatAgentOptions extends HarnessOptions {
     additionalTools?: ChatToolFactory;
     workspaceRoot?: string;
@@ -70,13 +70,6 @@ export function createChatAgent(repository: ChatSessionRepository, model: AgentM
         // 显式工具集合保持调用方契约；默认补充工具只在未被业务工具覆盖时注册一次。
         const defaults = options.tools ? [] : [mathAnalyzeTool(), mathCalculateTool(), taskPlanTool()];
         return [...supplied, ...defaults.filter(tool => !names.has(tool.definition.name))];
-    }, options.title ?? (async (session, signal) => {
-        try { return await abortable(() => title.execute(session, signal), signal); }
-        catch {
-            signal?.throwIfAborted();
-            logger.error("context.title_failed", { sessionId: session.id });
-            // A title failure must not invent a new title or select another provider.
-            return session.title;
-        }
-    }));
+    // 标题异常统一由会话服务处理，确保追踪能记录失败，已保存的答案仍然有效。
+    }, options.title ?? ((session, signal) => title.execute(session, signal)));
 }

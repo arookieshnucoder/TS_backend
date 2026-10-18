@@ -6,7 +6,9 @@ import { redact, environmentSecrets } from "../../common/logging/redaction.js";
 import { AppError } from "../../common/errors/app-error.js";
 
 export type RunStatus = "pending" | "success" | "failure" | "cancelled" | "timed_out" | "interrupted";
+/** 运行追踪中的一个有序事件，记录发生时间、相对耗时和结构化字段。 */
 export interface RunEvent { sequence: number; name: string; timestamp: string; elapsedMs: number; fields: Record<string, unknown>; }
+/** 一次回答的完整运行记录，关联会话、请求、消息及按顺序发生的事件。 */
 export interface RunTrace {
     id: string; sessionId: string; requestId: string; userMessageId: string; assistantMessageId?: string;
     question: string; status: RunStatus; startedAt: string; finishedAt?: string; durationMs?: number;
@@ -16,6 +18,7 @@ export type RunSummary = Omit<RunTrace, "events"> & { eventCount: number };
 const validId = (id: string) => /^[a-zA-Z0-9_-]{1,100}$/.test(id);
 const summary = ({ events, ...run }: RunTrace): RunSummary => ({ ...run, eventCount: events.length });
 
+/** 记录当前运行事件并更新状态，落盘前统一脱敏并限制记录数量。 */
 export class RunRecorder {
     private closed = false;
     private queue: Promise<void> = Promise.resolve();
@@ -58,7 +61,7 @@ export class RunRecorder {
     async flush(): Promise<void> { await this.queue; }
 }
 
-/** Independent per-question files. Trace failures never turn a successful answer into a failure. */
+/** 运行追踪存储，管理活动记录、历史查询及后端重启后的中断状态。 */
 export class RunTraceStore {
     private readonly active = new Map<string, RunRecorder>();
     private readonly secrets: string[];

@@ -1,5 +1,6 @@
 import type { AgentResult, AgentResultContext, AgentResultProcessor, AgentRuntime } from "./contracts.js";
 
+/** 独立核验结果：通过、确定错误或无法确认，并附理由和问题列表。 */
 export interface ReviewReport { verdict: "pass" | "fail" | "uncertain"; reason: string; issues: string[]; }
 export function parseReviewReport(content: string): ReviewReport {
     const text = content.trim().replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/, "$1");
@@ -11,7 +12,7 @@ export function parseReviewReport(content: string): ReviewReport {
     return { verdict: value.verdict, reason: value.reason, issues: value.issues };
 }
 
-/** Domain-independent result stage: review, one optional repair, then review the actual repaired output. */
+/** 答案发布前的核验阶段；确定错误时让主模型修正，再核验修正版。 */
 export class AnswerReview implements AgentResultProcessor {
     constructor(private readonly reviewer: string, private readonly reviser: string,
         private readonly evidence: (context: AgentResultContext) => unknown, private readonly maxRevisions = 1) {

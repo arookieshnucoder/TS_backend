@@ -15,12 +15,14 @@ import { ToolAccessError, type RegisteredTool } from "../harness/tool-contracts.
 import { parseImport, parseServer, resolveValues, type McpServerConfig } from "./mcp-config.js";
 import { adaptMcpTool } from "./mcp-tools.js";
 
+/** 提供给管理界面的 MCP 服务状态和工具列表，不暴露连接凭据。 */
 export interface McpServerView {
     id: string; name: string; transport: McpServerConfig["transport"]; enabled: boolean; allowMutations: boolean;
     status: "disabled" | "disconnected" | "connecting" | "connected" | "error";
     error?: string;
     tools: { name: string; description: string; readonly: boolean; available: boolean }[];
 }
+/** 一个 MCP 服务的活动连接，组合客户端、传输通道和生效配置。 */
 interface Connection { client: Client; transport: Transport; config: McpServerConfig; }
 export type McpConnector = (config: McpServerConfig, signal: AbortSignal) => Promise<Connection>;
 export async function connectMcp(config: McpServerConfig, signal: AbortSignal): Promise<Connection> {
@@ -38,7 +40,7 @@ export async function connectMcp(config: McpServerConfig, signal: AbortSignal): 
     } catch (error) { await client.close().catch(() => {}); await transport.close().catch(() => {}); throw error; }
 }
 
-/** A single backend process owns this catalog. Mutations are serialized and atomically persisted. */
+/** 管理 MCP 配置、连接和工具目录，负责超时、授权检查及连接清理。 */
 export class McpManager {
     private configs: McpServerConfig[] = [];
     private initialized?: Promise<void>;

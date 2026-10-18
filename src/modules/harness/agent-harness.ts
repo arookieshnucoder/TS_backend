@@ -17,11 +17,13 @@ import { prepareRun } from "./run-preparation.js";
 import { toolDiscovery } from "./tool-discovery.js";
 import { SubAgentSession, type SubAgentDefinition, type SubAgentScope, type DelegationLimits } from "./subagents.js";
 
+/** 运行时策略选项，集中控制工具上限、恢复、子任务和答案后处理。 */
 export interface HarnessOptions {
     subAgents?: SubAgentDefinition[];
     delegation?: Partial<DelegationLimits>;
     resultProcessors?: AgentResultProcessor[];
     recovery?: Partial<RecoveryPolicy>;
+    /** 仅在配置时显式提供；可重试错误耗尽主模型重试后才依次切换。 */
     fallbackModels?: NamedAgentModel[];
     maxCallsPerStep?: number;
     toolTimeoutMs?: number;
@@ -31,31 +33,29 @@ export interface HarnessOptions {
     /** 初始 MCP 目录与每次发现的上限，原生业务工具不被裁掉。 */
     maxMcpTools?: number;
 }
+/** 工具工厂可使用的运行时能力，目前提供受预算约束的文本压缩。 */
 export interface HarnessToolContext { compression: TextCompressor; }
 export type HarnessToolFactory = (context: HarnessToolContext, signal?: AbortSignal) => Promise<RegisteredTool[]>;
+/** 一轮执行的输入，包含当前问题、历史、工具、预取调用及追踪元信息。 */
 export interface HarnessInput {
     onEvent?(name: string, fields?: Record<string, unknown>): void;
     history: AgentMessage[];
     question: string;
     tools: RegisteredTool[] | HarnessToolFactory;
     metadata: Record<string, unknown>;
-    /** Experimental profiles can disable this for a fair architecture comparison. */
+    /** full 保留原始历史，evidence 只保留与当前问题相关的原文证据。 */
     historyPolicy?: "full" | "evidence";
     proactiveTools?: boolean;
     initialCalls?: ToolCall[];
 }
-// 这里构建的是通用的 harness 架构
+/** 统一执行入口，通用宿主和学科包装器都接收相同输入并返回 AgentResult。 */
 export interface HarnessRunner {
     run(input: HarnessInput, signal?: AbortSignal): Promise<AgentResult>;
 }
-/**
- * Production runtime: context, execution policy, recovery, cancellation and telemetry.
- * Workflow owns the decision loop; runtime policy applies to every workflow.
- */
+/** 公共执行宿主，统一管理上下文、工具权限、恢复、取消和追踪；决策交给工作流。 */
 export class AgentHarness implements HarnessRunner {
-    // agent harness 的核心组件：token 预算、恢复策略和选项配置
-    private readonly tokens: TokenBudget; // 限制 token 使用, 贫穷友好
-    private readonly recovery: RecoveryPolicy; // 恢复策略
+    private readonly tokens: TokenBudget;
+    private readonly recovery: RecoveryPolicy;
     private readonly options: Required<Omit<HarnessOptions, "recovery">>;
     constructor(private readonly model: AgentModel, private readonly workflow: AgentWorkflow,
         private readonly instructions: AgentInstructions, private readonly config: ContextConfig,

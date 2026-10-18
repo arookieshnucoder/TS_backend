@@ -50,6 +50,7 @@ export async function loadReadingCorpus(path: string): Promise<ReadingCorpus> {
     return validateReadingCorpus(JSON.parse(await readFile(path, "utf8")));
 }
 
+/** 公开语文网页的整理输入，保存材料文本、出处和参考答案页面。 */
 export interface PublicReadingPage {
     title: string; questionText: string; answerText: string; questionUrls: string[]; answerUrls: string[]; questionHash: string;
 }

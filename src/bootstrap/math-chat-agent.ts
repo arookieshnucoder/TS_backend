@@ -17,6 +17,8 @@ export function mathEmbeddingConfig(config: AppConfig) {
     return { ...config, llmBaseUrl: config.math.embeddingBaseUrl, llmApiKey: key ?? config.llmApiKey };
 }
 export function createMathChatAgent(model: AgentModel, config: AppConfig, logger: Logger, options: HarnessOptions = config.harness, reviewer?: AgentModel): ChatAgent {
+    if (config.math.variant === "general") throw new TypeError("Math agent requires a mathematics variant");
+    const variant = config.math.variant;
     const reviewedOptions = withAnswerReview(options, model, reviewer, config, "math", mathReviewEvidence);
     const embeddings = new GlmEmbeddings(mathEmbeddingConfig(config));
     const submissions = new MathSubmissions(config.math.submissionsPath, embeddings);
@@ -32,7 +34,7 @@ export function createMathChatAgent(model: AgentModel, config: AppConfig, logger
             // 优化检索自己生成向量，提交阶段避免重复 embedding；入库状态契约保持不变。
             const submission = await submissions.ingest(current.content, signal, !optimized);
             context?.event("math.ingested", { submissionId: submission.record.id, normalizedLength: submission.record.normalized.length });
-            const profile = createMathProfile(config.math.variant === "general" ? "combined" : config.math.variant, rag, model, config.context, logger, reviewedOptions);
+            const profile = createMathProfile(variant, rag, model, config.context, logger, reviewedOptions);
             const result = await profile.harness.run({ history: session.messages.map(({ role, content }) => ({ role, content })), question: current.content.trim(),
                 tools: [rag.tool(profile.mode, context?.event)], metadata: { sessionId: session.id, messageId: current.id, runId: context?.runId }, onEvent: context?.event }, signal);
             signal?.throwIfAborted();

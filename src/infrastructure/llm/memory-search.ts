@@ -5,6 +5,7 @@ import type { ContextConfig } from "../../modules/harness/context/config.js";
 import { TokenBudget } from "../../modules/harness/context/tokens.js";
 
 const terms = (text: string): string[] => text.toLowerCase().match(/\p{Script=Han}|[\p{L}\p{N}]+/gu) ?? [];
+/** 索引服务请求失败，保留状态码供上层判断错误，不自动改用本地检索。 */
 class IndexRequestError extends Error {
     constructor(readonly status: number, readonly reason?: string) { super(`Memory index request failed (HTTP ${status})`); }
 }

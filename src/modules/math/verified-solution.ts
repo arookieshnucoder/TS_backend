@@ -1,5 +1,6 @@
 import { deterministicChecks, describeData, subtractionStructures, equilateralAreaEnvelope, similarTrianglesInSecondQuadrant, midpointAxisPath } from './checks.js';
 import { normalizeMath } from './normalize.js';
+/** 根据当前题目条件由程序计算的结果，明确记录计算方法及来源。 */
 export interface VerifiedMathSolution { method: string; answer: string; content: string; source: 'computed_from_current_question'; }
 /** A bounded arithmetic parser for numeric choices. No eval, JS execution or golden answers. */
 export function numericOption(input: string): number | undefined {

@@ -1,5 +1,6 @@
 import { AppError } from "../../common/errors/app-error.js";
 
+/** MCP 服务持久化配置，描述连接方式、启用状态和修改类工具授权。 */
 export interface McpServerConfig {
     id: string;
     name: string;
