@@ -12,6 +12,7 @@ export interface ChatMessage {
  * 会话实体保留 Date 类型及内部请求标识，对外响应由 DTO 显式转换。
  */
 export interface ChatSession {
+    ownerId?: string;
     id: string;
     requestId: string;
     title: string;

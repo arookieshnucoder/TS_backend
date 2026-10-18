@@ -12,6 +12,7 @@ import { createObservabilityModule } from "./modules/observability/observability
 import { createMathModule } from "./modules/math/math.module.js";
 import { readingRouter } from "./modules/reading/reading.module.js";
 import { englishRouter } from "./modules/english/english.module.js";
+import { authWriteAccess, createAuthModule, requireAdmin, requireAuth } from "./modules/auth/auth.module.js";
 
 export function createApp(
     config: AppConfig = loadConfig(),
@@ -23,19 +24,24 @@ export function createApp(
     app.use(requestContext(dependencies.logger));
     const chatService = new ChatSessionService(dependencies.chatSessionRepository, dependencies.agentHarness, dependencies.errors,
         config.llmTimeoutMs, dependencies.runs);
-    app.use(cors({ origin: config.frontendOrigin, exposedHeaders: ["X-Request-Id"] }));
+    app.use(cors({ origin: config.frontendOrigin, credentials: true, exposedHeaders: ["X-Request-Id"] }));
     app.use(express.json({ limit: "1mb" }));
     app.use("/api/health", createHealthModule());
+    if (config.auth.enabled) {
+        if (!dependencies.auth) throw new Error("Authentication dependencies are missing");
+        app.use("/api/auth", createAuthModule(dependencies.auth, config.frontendOrigin));
+        app.use("/api", requireAuth(dependencies.auth), authWriteAccess(config.frontendOrigin));
+        app.use(["/api/mcp", "/api/observability"], requireAdmin);
+    }
     app.use("/api/math", createMathModule(config.math.variant, dependencies.mathOcr));
     if (dependencies.readingLibrary) app.use("/api/reading", readingRouter(dependencies.readingLibrary, config.reading.variant));
     if (dependencies.englishLibrary) app.use("/api/english", englishRouter(dependencies.englishLibrary, config.english.variant));
     // 返回给前端的聊天接口
     app.use("/api/chat", createChatModule(chatService, dependencies.errors));
-    app.use("/api/mcp", createMcpModule(dependencies.mcp, config.frontendOrigin, config.mcp.adminToken, config.nodeEnv === "production"));
-    app.use("/api/observability", createObservabilityModule(dependencies.runs, config.frontendOrigin, config.mcp.adminToken, config.nodeEnv === "production"));
+    app.use("/api/mcp", createMcpModule(dependencies.mcp, config.frontendOrigin, config.mcp.adminToken, config.nodeEnv === "production" && !config.auth.enabled));
+    app.use("/api/observability", createObservabilityModule(dependencies.runs, config.frontendOrigin, config.mcp.adminToken, config.nodeEnv === "production" && !config.auth.enabled));
     app.use(notFoundHandler);
     app.use(errorHandler(dependencies.logger));
-    // TODO: 可以在这里添加更多的中间件，例如请求日志、身份验证等。
     return app;
 }
 

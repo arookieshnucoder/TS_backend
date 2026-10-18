@@ -20,6 +20,10 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      # Disposable credentials for this job's local Compose database only.
+      POSTGRES_PASSWORD: ci-disposable-password
+      AUTH_COOKIE_SECURE: "false"
     permissions:
       contents: read
       packages: write
@@ -122,6 +126,7 @@ jobs:
           GH_ACTOR: ${{ github.actor }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           EMBEDDING_API_KEY: ${{ secrets.EMBEDDING_API_KEY }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           DEPLOY_ENV_FILE: ${{ vars.DEPLOY_ENV_FILE }}
           BACKEND_IMAGE: ${{ needs.publish.outputs.backend_image }}
           FRONTEND_IMAGE: ${{ needs.publish.outputs.frontend_image }}

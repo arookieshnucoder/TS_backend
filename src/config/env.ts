@@ -12,6 +12,7 @@ import { ALL_MATH_VARIANTS } from "../modules/math/contracts.js";
 import { READING_VARIANTS, type ReadingVariant } from "../modules/reading/contracts.js";
 import { ENGLISH_VARIANTS, type EnglishVariant } from "../modules/english/contracts.js";
 import type { SchoolSubject } from "../modules/subjects/contracts.js";
+import { loadAuthConfig, type AuthConfig } from "../modules/auth/config.js";
 
 
 /**
@@ -19,6 +20,7 @@ import type { SchoolSubject } from "../modules/subjects/contracts.js";
  * 但是不建议自己的大模型ApiKey放在里面，这个自己做终端的环境变量来管理更安全。
  */
 export interface AppConfig {
+    auth: AuthConfig;
     verification: { enabled: boolean; model: string; baseUrl: string; apiKey?: string; timeoutMs: number; maxRevisions: number };
     schoolSubject: SchoolSubject | "auto";
     english: { variant: EnglishVariant; corpusPath: string; contextTokens: number; workflow: "direct" | "grounded"; thinking: "enabled" | "disabled" };
@@ -122,6 +124,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
         llmFallback = { model: env.LLM_FALLBACK_MODEL, baseUrl, apiKey: env.LLM_FALLBACK_API_KEY || env.LLM_API_KEY };
     } else if (env.LLM_FALLBACK_BASE_URL || env.LLM_FALLBACK_API_KEY) throw new Error("Fallback settings require LLM_FALLBACK_MODEL");
     return {
+        auth: loadAuthConfig(env),
         verification: { enabled: reviewEnabled === "true", model: reviewModel, baseUrl: reviewBaseUrl,
             apiKey: env.ANSWER_REVIEW_API_KEY || env.LLM_API_KEY, timeoutMs: reviewTimeoutMs, maxRevisions },
         schoolSubject: schoolSubject as AppConfig["schoolSubject"],

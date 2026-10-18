@@ -21,10 +21,15 @@ import { routeSchoolSubject } from "./school-subject.js";
 import { withAnswerReview, mathReviewEvidence } from "./answer-review.js";
 import { EnglishLibrary } from "../modules/english/library.js";
 import { createEnglishChatAgent } from "./english-chat-agent.js";
+import { AuthService } from "../modules/auth/auth.service.js";
+import type { AuthStore } from "../modules/auth/contracts.js";
+import { PostgresAuthStore } from "../infrastructure/persistence/postgres/postgres-auth.store.js";
+import { IdentityChatSessionRepository } from "../infrastructure/persistence/identity-chat-session.repository.js";
 
 
 /** 应用启动后共享的依赖集合；学科题库按需加载，会话服务只依赖 ChatAgent 接口。 */
 export interface AppDependencies {
+    auth?: AuthService;
     englishLibrary?: EnglishLibrary;
     readingLibrary?: ReadingLibrary;
     mathOcr?: MathOcrProvider;
@@ -37,7 +42,7 @@ export interface AppDependencies {
 }
 
 
-export type DependencyOverrides = Partial<AppDependencies> & { agentModel?: AgentModel; reviewerModel?: AgentModel; fallbackModels?: NamedAgentModel[] };
+export type DependencyOverrides = Partial<AppDependencies> & { authStore?: AuthStore; agentModel?: AgentModel; reviewerModel?: AgentModel; fallbackModels?: NamedAgentModel[] };
 
 /** 主模型与备用模型采用同一供应商选择规则，GLM 不会在降级时丢失推理协议字段。 */
 function createModel(provider: LlmConfig, thinking: "enabled" | "disabled", errors: ErrorContainer): AgentModel {
@@ -45,7 +50,7 @@ function createModel(provider: LlmConfig, thinking: "enabled" | "disabled", erro
 }
 
 export function createDependencies(overrides: DependencyOverrides = {}, config: AppConfig = loadConfig()): AppDependencies {
-    const allowed = new Set(["errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "reviewerModel", "mcp", "fallbackModels", "runs", "mathOcr", "readingLibrary", "englishLibrary"]);
+    const allowed = new Set(["auth", "authStore", "errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "reviewerModel", "mcp", "fallbackModels", "runs", "mathOcr", "readingLibrary", "englishLibrary"]);
     for (const key of Object.keys(overrides)) {
         if (!allowed.has(key)) throw new TypeError(`Unsupported dependency override: ${key}`);
         if (overrides[key as keyof DependencyOverrides] == null) throw new TypeError(`Dependency override ${key} must not be null or undefined`);
@@ -57,7 +62,8 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
     if (overrides.agentHarness !== undefined && (typeof overrides.agentHarness.run !== "function" || typeof overrides.agentHarness.titleFor !== "function"))
         throw new TypeError("agentHarness must implement run and titleFor");
     const errors = overrides.errors ?? errorContainer;
-    const repository = overrides.chatSessionRepository ?? new JsonChatSessionRepository(config.sessionDataDir);
+    const repository = new IdentityChatSessionRepository(overrides.chatSessionRepository ?? new JsonChatSessionRepository(config.sessionDataDir));
+    const auth = overrides.auth ?? (config.auth.enabled ? new AuthService(overrides.authStore ?? new PostgresAuthStore(config.auth.databaseUrl), config.auth) : undefined);
     const log = overrides.logger ?? logger;
     const provider: LlmConfig = { llmApiKey: config.llmApiKey, llmModel: config.llmModel, llmBaseUrl: config.llmBaseUrl, llmTimeoutMs: config.llmTimeoutMs };
     const mcp = overrides.mcp ?? new McpManager(config.mcp.configFile, log, undefined, config.mcp.timeoutMs);
@@ -99,6 +105,7 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
         }
     }
     return {
+        auth,
         englishLibrary,
         readingLibrary,
         mathOcr: overrides.mathOcr,

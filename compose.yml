@@ -31,6 +31,15 @@ services:
       PORT: "8080"
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       SESSION_DATA_DIR: /app/data/sessions
+      AUTH_ENABLED: "true"
+      AUTH_DB_DRIVER: postgres
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+      AUTH_SESSION_TTL_SECONDS: ${AUTH_SESSION_TTL_SECONDS:-604800}
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: songjian
+      PGDATABASE: songjian
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the launching environment}
       MATH_AGENT_VARIANT: general
       SCHOOL_SUBJECT: ${SCHOOL_SUBJECT:-math}
       ENGLISH_AGENT_VARIANT: ${ENGLISH_AGENT_VARIANT:-adaptive}
@@ -85,6 +94,8 @@ services:
       - sessions:/app/data/sessions
       - harness:/app/runtime
     depends_on:
+      postgres:
+        condition: service_healthy
       elasticsearch:
         condition: service_healthy
     read_only: true
@@ -96,6 +107,23 @@ services:
       - ALL
     networks:
       - app
+      - memory
+
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: songjian
+      POSTGRES_DB: songjian
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the launching environment}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U songjian -d songjian"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
       - memory
 
   elasticsearch:
@@ -121,6 +149,7 @@ networks:
   memory:
     internal: true
 volumes:
+  postgres:
   sessions:
   harness:
   elasticsearch:

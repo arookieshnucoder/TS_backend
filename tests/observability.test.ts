@@ -143,7 +143,7 @@ test("redaction handles secret keys, JSON text, bearer tokens, URLs, known value
     assert.ok(JSON.stringify(value).length < 8192);
 });
 
-test("production administration needs a token even behind a loopback proxy, without blocking chat", async () => {
+test("production APIs require a session even behind a loopback proxy; health remains public", async () => {
     const cfg = loadConfig({ NODE_ENV: "production", AGENT_WORKSPACE_ENABLED: "false", AGENT_TRACE_ENABLED: "false" });
     const deps = createDependencies({ logger, chatSessionRepository: new InMemoryChatSessionRepository(),
         agentHarness: { async run() { return { content: "answer" }; }, async titleFor(s) { return s.title; } } }, cfg);
@@ -151,11 +151,12 @@ test("production administration needs a token even behind a loopback proxy, with
     const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     try {
         for (const path of ["/api/mcp/servers", "/api/observability/sessions/s/runs"]) {
-            const response = await fetch(`${base}${path}`); assert.equal(response.status, 503);
-            assert.equal((await response.json() as any).error.code, "ADMIN_TOKEN_REQUIRED");
+            const response = await fetch(`${base}${path}`); assert.equal(response.status, 401);
+            assert.equal((await response.json() as any).error.code, "AUTH_REQUIRED");
         }
-        assert.equal((await fetch(`${base}/api/chat/sessions`)).status, 200);
-    } finally { await deps.mcp.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+        assert.equal((await fetch(`${base}/api/chat/sessions`)).status, 401);
+        assert.equal((await fetch(`${base}/api/health`)).status, 200);
+    } finally { await deps.auth?.store.close(); await deps.mcp.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
 
 test("observability HTTP requires administrator access, provides summaries/details and supports disabling", async () => {

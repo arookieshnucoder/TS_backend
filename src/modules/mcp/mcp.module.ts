@@ -5,9 +5,10 @@ import { object } from "./mcp-config.js";
 import type { McpManager } from "./mcp-manager.js";
 
 export function adminAccess(origin: string, token?: string, requireToken = false): RequestHandler {
-    return (request, _response, next) => {
+    return (request, response, next) => {
         const actualOrigin = request.get("Origin");
         if (actualOrigin && actualOrigin !== origin) return next(new AppError(403, "ADMIN_FORBIDDEN", "管理接口不接受该来源。"));
+        if (response.locals.user?.role === "admin") return next();
         if (requireToken && !token) return next(new AppError(503, "ADMIN_TOKEN_REQUIRED", "生产环境管理功能需要在后端设置 MCP_ADMIN_TOKEN。"));
         if (token) {
             const supplied = Buffer.from(request.get("Authorization")?.replace(/^Bearer /, "") ?? "");

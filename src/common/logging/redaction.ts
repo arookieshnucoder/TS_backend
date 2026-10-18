@@ -1,4 +1,4 @@
-const sensitive = /password|passwd|secret|credential|authorization|cookie|api.?key|access.?token|refresh.?token|^(token|env|headers)$/i;
+const sensitive = /password|passwd|secret|credential|authorization|cookie|api.?key|access.?token|refresh.?token|database.?url|^(token|env|headers)$/i;
 export function environmentSecrets(): string[] {
     return Object.entries(process.env).filter(([key, value]) => sensitive.test(key) && value && value.length >= 4).map(([, value]) => value!);
 }

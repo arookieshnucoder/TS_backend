@@ -6,16 +6,20 @@ import type { ChatAgent } from "./chat-agent.js";
 import type { RunRecorder, RunStatus, RunTraceStore } from "../../observability/run-trace.js";
 import { failureCode } from "../../harness/recovery.js";
 import { abortable } from "../../harness/cancellation.js";
+import { identity } from "../../auth/identity.js";
 
 /** 会话业务服务，串行处理同一会话的发送，保存结果并处理超时、失败和标题更新。 */
 export class ChatSessionService {
     private readonly activeSessions = new Set<string>();
-    private initialization?: Promise<void>;
+    private readonly initializations = new Map<string, Promise<void>>();
     constructor(private readonly repository: ChatSessionRepository, private readonly harness: ChatAgent,
         private readonly errors: ErrorContainer = errorContainer, private readonly timeoutMs = 120000, private readonly runs?: RunTraceStore) { }
 
     private initialize(): Promise<void> {
-        return this.initialization ??= (async () => {
+        const scope = identity.getStore()?.userId ?? "";
+        const existing = this.initializations.get(scope);
+        if (existing) return existing;
+        const pending = (async () => {
             for (const session of await this.repository.findAll()) {
                 if (session.sessionStatus === "pending") {
                     session.sessionStatus = "failure";
@@ -23,7 +27,9 @@ export class ChatSessionService {
                     await this.repository.save(session);
                 }
             }
-        })();
+        })().catch(error => { this.initializations.delete(scope); throw error; });
+        this.initializations.set(scope, pending);
+        return pending;
     }
     async create(title: string, requestId: string): Promise<ChatSession> {
         await this.initialize();
