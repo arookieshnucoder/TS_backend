@@ -10,6 +10,7 @@ import { loadHarnessConfig, type HarnessConfig } from "../modules/harness/config
 import type { MathVariant } from "../modules/math/contracts.js";
 import { ALL_MATH_VARIANTS } from "../modules/math/contracts.js";
 import { READING_VARIANTS, type ReadingVariant } from "../modules/reading/contracts.js";
+import { ENGLISH_VARIANTS, type EnglishVariant } from "../modules/english/contracts.js";
 
 
 /**
@@ -18,7 +19,8 @@ import { READING_VARIANTS, type ReadingVariant } from "../modules/reading/contra
  */
 export interface AppConfig {
     verification: { enabled: boolean; model: string; baseUrl: string; apiKey?: string; timeoutMs: number; maxRevisions: number };
-    schoolSubject: "math" | "chinese" | "auto";
+    schoolSubject: "math" | "chinese" | "english" | "auto";
+    english: { variant: EnglishVariant; corpusPath: string; contextTokens: number; workflow: "direct" | "grounded"; thinking: "enabled" | "disabled" };
     reading: { variant: ReadingVariant; corpusPath: string; contextTokens: number };
     math: { variant: MathVariant | "general"; corpusPath: string; indexPath: string; submissionsPath: string; embeddingBaseUrl: string; thinking: "enabled" | "disabled" };
     observability: { enabled: boolean; dataDir: string; maxEvents: number };
@@ -70,9 +72,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
     const schoolSubject = env.SCHOOL_SUBJECT ?? "math";
     const readingVariant = env.READING_AGENT_VARIANT ?? "adaptive";
     const readingContextTokens = Number(env.READING_CONTEXT_TOKENS ?? "1400");
-    if (!["math", "chinese", "auto"].includes(schoolSubject) || !READING_VARIANTS.includes(readingVariant as ReadingVariant) ||
+    if (!["math", "chinese", "english", "auto"].includes(schoolSubject) || !READING_VARIANTS.includes(readingVariant as ReadingVariant) ||
         !Number.isSafeInteger(readingContextTokens) || readingContextTokens < 256 || readingContextTokens > 6000) throw new Error("Invalid reading configuration");
     const thinking = env.GLM_THINKING ?? "disabled";
+    const englishVariant = env.ENGLISH_AGENT_VARIANT ?? "adaptive", englishContextTokens = Number(env.ENGLISH_CONTEXT_TOKENS ?? "1800");
+    const englishWorkflow = env.ENGLISH_WORKFLOW ?? "grounded";
+    const englishThinking = env.ENGLISH_THINKING ?? "disabled";
+    if (!["enabled", "disabled"].includes(englishThinking) || !["direct", "grounded"].includes(englishWorkflow) || !ENGLISH_VARIANTS.includes(englishVariant as EnglishVariant) || !Number.isSafeInteger(englishContextTokens) || englishContextTokens < 256 || englishContextTokens > 6000)
+        throw new Error("Invalid English configuration");
     if (!["enabled", "disabled"].includes(thinking)) throw new Error("Invalid GLM_THINKING");
     const mathEmbeddingUrl = env.MATH_EMBEDDING_BASE_URL ?? "https://open.bigmodel.cn/api/paas/v4";
     const mathUrl = new URL(mathEmbeddingUrl);
@@ -117,6 +124,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
         verification: { enabled: reviewEnabled === "true", model: reviewModel, baseUrl: reviewBaseUrl,
             apiKey: env.ANSWER_REVIEW_API_KEY || env.LLM_API_KEY, timeoutMs: reviewTimeoutMs, maxRevisions },
         schoolSubject: schoolSubject as AppConfig["schoolSubject"],
+        english: { variant: englishVariant as EnglishVariant, contextTokens: englishContextTokens, workflow: englishWorkflow as "direct" | "grounded", thinking: englishThinking as "enabled" | "disabled",
+            corpusPath: env.ENGLISH_CORPUS_PATH ?? fileURLToPath(new URL("../../evals/english/corpus.json", import.meta.url)) },
         reading: { variant: readingVariant as ReadingVariant, contextTokens: readingContextTokens,
             corpusPath: env.READING_CORPUS_PATH ?? fileURLToPath(new URL("../../evals/chinese/corpus.json", import.meta.url)) },
         math: { variant: mathVariant as MathVariant | "general", thinking: thinking as "enabled" | "disabled", embeddingBaseUrl: mathEmbeddingUrl,

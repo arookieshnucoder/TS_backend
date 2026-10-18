@@ -24,6 +24,11 @@
     "math:expand": "tsx scripts/expand-math.ts",
     "chinese:download": "node scripts/download-chinese.mjs",
     "chinese:prepare": "tsx scripts/prepare-chinese.ts",
+    "english:download": "powershell -NoProfile -File scripts/download-english.ps1",
+    "english:prepare": "tsx scripts/prepare-english.ts",
+    "english:holdout": "tsx scripts/prepare-english-holdout.ts",
+    "eval:english": "tsx scripts/evaluate-english.ts",
+    "english:rescore": "tsx scripts/rescore-english.ts",
     "eval:reading": "tsx scripts/evaluate-reading.ts",
     "eval:math:optimization": "tsx scripts/evaluate-math-optimization.ts",
     "eval:math:study": "tsx scripts/run-math-study.ts"

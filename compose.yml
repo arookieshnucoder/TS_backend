@@ -32,6 +32,12 @@ services:
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       SESSION_DATA_DIR: /app/data/sessions
       MATH_AGENT_VARIANT: general
+      SCHOOL_SUBJECT: ${SCHOOL_SUBJECT:-math}
+      ENGLISH_AGENT_VARIANT: ${ENGLISH_AGENT_VARIANT:-adaptive}
+      ENGLISH_WORKFLOW: ${ENGLISH_WORKFLOW:-grounded}
+      ENGLISH_THINKING: ${ENGLISH_THINKING:-disabled}
+      ENGLISH_CONTEXT_TOKENS: ${ENGLISH_CONTEXT_TOKENS:-1800}
+      ENGLISH_CORPUS_PATH: ${ENGLISH_CORPUS_PATH:-/app/evals/english/corpus.json}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
       LLM_MODEL: ${LLM_MODEL:-deepseek-flash}

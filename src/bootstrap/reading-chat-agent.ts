@@ -51,11 +51,4 @@ export function createReadingChatAgent(model: AgentModel, config: AppConfig, log
     };
 }
 
-/** Cheap deterministic routing, with explicit mathematics taking precedence over reading history. */
-export function routeSchoolSubject(current: string, history: readonly { role: string; content: string }[]): "math" | "chinese" {
-    if (/\[数学\]|【数学】/.test(current)) return "math";
-    if (isReadingRequest(current)) return "chinese";
-    if (/解方程|二次函数|抛物线|概率|三角形|求.*(?:根|面积|体积|最小值|最大值)|[a-z][²^]|\d\s*[+*/=]\s*\d/i.test(current)) return "math";
-    const previous = [...history].reverse().find(message => message.role === "user" && (isReadingRequest(message.content) || /\[数学\]|方程|函数|抛物线|三角形/.test(message.content)));
-    return previous && isReadingRequest(previous.content) ? "chinese" : "math";
-}
+export { routeSchoolSubject } from "./school-subject.js";
