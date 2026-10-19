@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "scope": "Deterministic unit-test fixtures for skills retrieval; not a representative benchmark.",
+  "catalogContentHash": "e081d72a468d28488ba491453125e3ca08f37fd5d75661c789cd0db0b8e24c16",
+  "cases": [
+    {
+      "id": "linear-equation-paraphrase",
+      "subject": "math",
+      "category": "paraphrase",
+      "query": "Solve a one-variable linear equation by isolating its variable.",
+      "relevantIds": [
+        "00000000-0000-4000-8000-000000000001"
+      ]
+    },
+    {
+      "id": "quadratic-no-answer",
+      "subject": "math",
+      "category": "no-answer",
+      "query": "Factor a quadratic expression with a squared variable.",
+      "relevantIds": []
+    }
+  ]
+}

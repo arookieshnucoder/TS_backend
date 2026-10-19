@@ -1,0 +1,31 @@
+[
+  {
+    "name": "linear-equation-isolation",
+    "description": "Use inverse operations to isolate one variable in a linear equation.",
+    "applicability": [
+      "The equation is linear in one variable."
+    ],
+    "steps": [
+      "Simplify both sides of the equation.",
+      "Apply inverse operations to isolate the variable."
+    ],
+    "checks": [
+      "Substitute the result into the original equation."
+    ],
+    "exclusions": [
+      "The equation contains a nonlinear variable term."
+    ],
+    "keywords": [
+      "linear equation",
+      "inverse operations"
+    ],
+    "id": "00000000-0000-4000-8000-000000000001",
+    "subject": "math",
+    "markdown": "---\nname: linear-equation-isolation\ndescription: \"Use inverse operations to isolate one variable in a linear equation.\"\nsubject: math\nid: 00000000-0000-4000-8000-000000000001\nversion: 1\n---\n\n# linear-equation-isolation\n\nUse inverse operations to isolate one variable in a linear equation.\n\n## 适用条件\n\n1. The equation is linear in one variable.\n\n## 解题流程\n\n1. Simplify both sides of the equation.\n2. Apply inverse operations to isolate the variable.\n\n## 校验\n\n1. Substitute the result into the original equation.\n\n## 不适用情形\n\n1. The equation contains a nonlinear variable term.\n\n关键词：linear equation、inverse operations\n",
+    "fingerprint": "c8b8c7fafdbd71e7d6bf08980f331f6a1e2f85961da9de75733f133602287400",
+    "questionShape": "unavailable-in-export",
+    "sourceHash": "8e5ba659ec9d86a4f4c06c36350a7af468c59fa6a9164e2bfbb927a56cc1c559",
+    "answerHash": "unavailable-in-export",
+    "createdAt": "unavailable-in-export"
+  }
+]

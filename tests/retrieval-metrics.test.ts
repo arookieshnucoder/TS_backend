@@ -45,9 +45,9 @@ test("Export parser fails closed and evaluation store disallows learning", async
 });
 
 test("Frozen catalog round-trips exported methods and its labels match exactly that catalog", async () => {
-    const catalog = validateSkillCatalog(JSON.parse(await readFile(new URL("../benchmarks/rag/skills-catalog.json", import.meta.url), "utf8")));
+    const catalog = validateSkillCatalog(JSON.parse(await readFile(new URL("./fixtures/skills-catalog.json", import.meta.url), "utf8")));
     for (const skill of catalog) assert.deepEqual(parseSkillExport(skill.markdown), skill);
-    const judgments = JSON.parse(await readFile(new URL("../benchmarks/rag/skills-queries.json", import.meta.url), "utf8"));
+    const judgments = JSON.parse(await readFile(new URL("./fixtures/skills-queries.json", import.meta.url), "utf8"));
     const content = JSON.stringify([...catalog].sort((a, b) => a.id.localeCompare(b.id)).map(({ id, subject, markdown }) => ({ id, subject, markdown })));
     assert.equal(judgments.catalogContentHash, createHash("sha256").update(content).digest("hex"));
     validateRetrievalCases(judgments.cases, new Map(catalog.map(s => [s.id, s.subject])));
