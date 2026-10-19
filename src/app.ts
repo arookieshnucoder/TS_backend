@@ -35,7 +35,7 @@ export function createApp(
     }
     app.use("/api/math", createMathModule(config.math.variant, dependencies.mathOcr));
     if (dependencies.readingLibrary) app.use("/api/reading", readingRouter(dependencies.readingLibrary, config.reading.variant));
-    if (dependencies.englishLibrary) app.use("/api/english", englishRouter(dependencies.englishLibrary, config.english.variant));
+    if (dependencies.englishLibrary) app.use("/api/english", englishRouter(dependencies.englishLibrary, config.english.variant, config.verification.enabled));
     // 返回给前端的聊天接口
     app.use("/api/chat", createChatModule(chatService, dependencies.errors));
     app.use("/api/mcp", createMcpModule(dependencies.mcp, config.frontendOrigin, config.mcp.adminToken, config.nodeEnv === "production" && !config.auth.enabled));

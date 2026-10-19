@@ -13,7 +13,7 @@ import { McpManager } from "../modules/mcp/mcp-manager.js";
 import type { NamedAgentModel } from "../modules/harness/recovery.js";
 import { RunTraceStore } from "../modules/observability/run-trace.js";
 import { createMathChatAgent } from "./math-chat-agent.js";
-import { GlmModel } from "../infrastructure/llm/glm-model.js";
+import { GlmModel, GlmEmbeddings } from "../infrastructure/llm/glm-model.js";
 import type { MathOcrProvider } from "../modules/math/contracts.js";
 import { ReadingLibrary } from "../modules/reading/library.js";
 import { createReadingChatAgent } from "./reading-chat-agent.js";
@@ -25,10 +25,14 @@ import { AuthService } from "../modules/auth/auth.service.js";
 import type { AuthStore } from "../modules/auth/contracts.js";
 import { PostgresAuthStore } from "../infrastructure/persistence/postgres/postgres-auth.store.js";
 import { IdentityChatSessionRepository } from "../infrastructure/persistence/identity-chat-session.repository.js";
+import { PostgresSkillStore } from "../infrastructure/persistence/postgres/postgres-skill.store.js";
+import { SolutionSkillLibrary } from "../modules/harness/skills/library.js";
+import { withSolutionSkills } from "./solution-skills.js";
 
 
 /** 应用启动后共享的依赖集合；学科题库按需加载，会话服务只依赖 ChatAgent 接口。 */
 export interface AppDependencies {
+    solutionSkills?: SolutionSkillLibrary;
     auth?: AuthService;
     englishLibrary?: EnglishLibrary;
     readingLibrary?: ReadingLibrary;
@@ -50,7 +54,7 @@ function createModel(provider: LlmConfig, thinking: "enabled" | "disabled", erro
 }
 
 export function createDependencies(overrides: DependencyOverrides = {}, config: AppConfig = loadConfig()): AppDependencies {
-    const allowed = new Set(["auth", "authStore", "errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "reviewerModel", "mcp", "fallbackModels", "runs", "mathOcr", "readingLibrary", "englishLibrary"]);
+    const allowed = new Set(["solutionSkills", "auth", "authStore", "errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "reviewerModel", "mcp", "fallbackModels", "runs", "mathOcr", "readingLibrary", "englishLibrary"]);
     for (const key of Object.keys(overrides)) {
         if (!allowed.has(key)) throw new TypeError(`Unsupported dependency override: ${key}`);
         if (overrides[key as keyof DependencyOverrides] == null) throw new TypeError(`Dependency override ${key} must not be null or undefined`);
@@ -71,28 +75,31 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
         [config.llmApiKey, config.verification.apiKey, config.llmFallback?.apiKey, config.mcp.adminToken], config.observability.maxEvents) : undefined);
     const readingLibrary = overrides.readingLibrary ?? new ReadingLibrary(config.reading.corpusPath);
     const englishLibrary = overrides.englishLibrary ?? new EnglishLibrary(config.english.corpusPath);
+    const solutionSkills = overrides.solutionSkills ?? (config.skills.enabled ? new SolutionSkillLibrary(new PostgresSkillStore(config.skills.databaseUrl), config.skills.directory,
+        config.skills.embeddingApiKey ? new GlmEmbeddings({ ...provider, llmBaseUrl: config.skills.embeddingBaseUrl, llmApiKey: config.skills.embeddingApiKey }) : undefined) : undefined);
     let agentHarness = overrides.agentHarness;
     if (!agentHarness) {
         const model = overrides.agentModel ?? createModel(provider, config.math.thinking, errors);
-        const reviewer = config.verification.enabled && config.schoolSubject !== "english" ? overrides.reviewerModel ?? new GlmModel({
+        const reviewer = config.verification.enabled ? overrides.reviewerModel ?? new GlmModel({
             llmApiKey: config.verification.apiKey, llmModel: config.verification.model,
             llmBaseUrl: config.verification.baseUrl, llmTimeoutMs: config.verification.timeoutMs,
         }, config.math.thinking) : undefined;
         const fallbackProvider = config.llmFallback ? { ...provider, llmModel: config.llmFallback.model, llmBaseUrl: config.llmFallback.baseUrl, llmApiKey: config.llmFallback.apiKey } : undefined;
         const fallbacks = (thinking: "enabled" | "disabled") => overrides.fallbackModels ??
             (overrides.agentModel === undefined && fallbackProvider ? [{ name: fallbackProvider.llmModel, model: createModel(fallbackProvider, thinking, errors) }] : []);
-        const harnessOptions = { ...config.harness, fallbackModels: fallbacks(config.math.thinking) };
+        const harnessOptions = withSolutionSkills({ ...config.harness, fallbackModels: fallbacks(config.math.thinking) }, solutionSkills, model, reviewer);
         const createBaseAgent = () => config.math.variant !== "general" ? createMathChatAgent(model, config, log, harnessOptions, reviewer) : createChatAgent(repository, model,
             () => config.context.elasticsearchUrl ? new ElasticsearchMemorySearch(new TokenBudget(config.context), config.context) :
                 new LocalMemorySearch(new TokenBudget(config.context)), config.context, log,
             { ...withAnswerReview(harnessOptions, model, reviewer, config, "math", mathReviewEvidence),
-                excludedPaths: [config.sessionDataDir, config.observability.dataDir, config.mcp.configFile],
+                excludedPaths: [config.sessionDataDir, config.observability.dataDir, config.mcp.configFile, config.skills.directory],
                 additionalTools: (_session, signal, context) => mcp.tools(signal, context?.event) });
         if (config.schoolSubject === "math") agentHarness = createBaseAgent();
         else {
             const reading = createReadingChatAgent(model, config, log, readingLibrary, harnessOptions, reviewer);
             const englishModel = overrides.agentModel ?? createModel(provider, config.english.thinking, errors);
-            const english = createEnglishChatAgent(englishModel, config, log, englishLibrary, { ...config.harness, fallbackModels: fallbacks(config.english.thinking) });
+            const english = createEnglishChatAgent(englishModel, config, log, englishLibrary,
+                withSolutionSkills({ ...config.harness, fallbackModels: fallbacks(config.english.thinking) }, solutionSkills, englishModel, reviewer), reviewer);
             let base: ChatAgent | undefined;
             const select = (content: string, history: readonly { role: string; content: string }[]) => {
                 const subject = config.schoolSubject === "auto" ? routeSchoolSubject(content, history) : config.schoolSubject;
@@ -105,6 +112,7 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
         }
     }
     return {
+        solutionSkills,
         auth,
         englishLibrary,
         readingLibrary,

@@ -7,8 +7,9 @@ import { EnglishHarness } from "../modules/english/harness.js";
 import { EnglishLibrary, parseEnglishInput, unsupportedEnglish } from "../modules/english/library.js";
 import { englishQuestions } from "../modules/english/contracts.js";
 import { subjectHistory } from "./school-subject.js";
+import { withAnswerReview } from "./answer-review.js";
 
-export function createEnglishChatAgent(model: AgentModel, config: AppConfig, logger: Logger, library: EnglishLibrary, options: HarnessOptions = config.harness): ChatAgent {
+export function createEnglishChatAgent(model: AgentModel, config: AppConfig, logger: Logger, library: EnglishLibrary, options: HarnessOptions = config.harness, reviewer?: AgentModel): ChatAgent {
     return {
         async run(session, current, signal, context) {
             signal?.throwIfAborted();
@@ -33,7 +34,10 @@ export function createEnglishChatAgent(model: AgentModel, config: AppConfig, log
                 if (questions.length !== numbers.length) return { content: "现有原文中缺少所指定选择题的完整题干和选项，请补充后再作答。", modelTurns: 0, toolCalls: 0 };
                 task = { ...task, questions };
             }
-            const harness = new EnglishHarness(model, task, config.english.variant, config.context, logger, config.english.contextTokens, options, config.english.workflow);
+            const original = task;
+            const reviewed = withAnswerReview(options, model, reviewer, config, "english", context => ({ question: context.question,
+                original: original.passage.paragraphs.map((text, index) => ({ id: `P${index + 1}`, text })), questions: englishQuestions(original) }));
+            const harness = new EnglishHarness(model, task, config.english.variant, config.context, logger, config.english.contextTokens, reviewed, config.english.workflow);
             return harness.run({ history: history.map(({ role, content }) => ({ role, content })), question: supplied ? englishQuestions(task) : current.content,
                 tools: [], metadata: { sessionId: session.id, messageId: current.id, runId: context?.runId, subject: "english" }, onEvent: context?.event }, signal);
         },

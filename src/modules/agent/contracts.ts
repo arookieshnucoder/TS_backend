@@ -51,7 +51,7 @@ export interface AgentTask { agent: string; input: string; context?: AgentMessag
 /** 子任务结果，在通用答案上补充任务 ID 和实际执行的 agent 名称。 */
 export interface AgentTaskResult extends AgentResult { taskId: string; agent: string; }
 /** 结果处理器可读取的当前问题和历史消息，用于核验和格式检查。 */
-export interface AgentResultContext { question: string; history: readonly AgentMessage[]; }
+export interface AgentResultContext { question: string; history: readonly AgentMessage[]; evidence?: unknown; }
 /** 答案提交前的公共处理阶段，可核验、修正或规范化工作流输出。 */
 export interface AgentResultProcessor {
     process(result: AgentResult, runtime: AgentRuntime, context: AgentResultContext, signal?: AbortSignal): Promise<AgentResult>;

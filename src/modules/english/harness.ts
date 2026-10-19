@@ -8,9 +8,11 @@ import { englishQuestions, type EnglishTask, type EnglishVariant } from "./contr
 import { selectEnglishEvidence } from "./evidence.js";
 import { EnglishResponseProcessor, ENGLISH_RESPONSE_FINAL, type EnglishWorkflow } from "./response.js";
 import { SingleTurnAgent } from "../agent/single-turn-agent.js";
+import { AnswerReview } from "../agent/answer-review.js";
 
 /** 英语配置入口：保留逐题求解及格式检查，原文工具和预算交给公共宿主。 */
 export class EnglishHarness extends PassageHarness {
+    private readonly reviewConfigured: boolean;
     constructor(model: AgentModel, task: EnglishTask, variant: EnglishVariant, config: ContextConfig,
         logger: Logger, contextTokens = 1800, options: HarnessOptions = {}, private readonly workflow: EnglishWorkflow = "grounded") {
         if (!["direct", "grounded"].includes(workflow)) throw new TypeError("Invalid English workflow");
@@ -31,10 +33,11 @@ export class EnglishHarness extends PassageHarness {
             delegation: { maxCalls: 32, maxConcurrent: 2, ...options.delegation },
             resultProcessors: [...(workflow === "grounded" ? [new EnglishResponseProcessor(task)] : []), ...(options.resultProcessors ?? [])],
         });
+        this.reviewConfigured = !!options.resultProcessors?.some(processor => processor instanceof AnswerReview);
     }
 
     override run(input: HarnessInput, signal?: AbortSignal) {
-        input.onEvent?.("english.review.skipped", { reason: "not_configured" });
+        if (!this.reviewConfigured) input.onEvent?.("english.review.skipped", { reason: "not_configured" });
         input.onEvent?.("english.workflow", { workflow: this.workflow, answerLookup: false });
         return super.run(input, signal);
     }

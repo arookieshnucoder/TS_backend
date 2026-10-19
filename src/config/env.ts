@@ -20,6 +20,7 @@ import { loadAuthConfig, type AuthConfig } from "../modules/auth/config.js";
  * 但是不建议自己的大模型ApiKey放在里面，这个自己做终端的环境变量来管理更安全。
  */
 export interface AppConfig {
+    skills: { enabled: boolean; directory: string; databaseUrl?: string; embeddingBaseUrl: string; embeddingApiKey?: string };
     auth: AuthConfig;
     verification: { enabled: boolean; model: string; baseUrl: string; apiKey?: string; timeoutMs: number; maxRevisions: number };
     schoolSubject: SchoolSubject | "auto";
@@ -69,6 +70,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
     if (nodeEnv !== "development" && nodeEnv !== "test" && nodeEnv !== "production") {
         throw new Error("NODE_ENV must be development, test or production");
     }
+    const skillsEnabled = env.SOLUTION_SKILLS_ENABLED ?? (nodeEnv === "test" ? "false" : "true");
+    if (!["true", "false"].includes(skillsEnabled)) throw new Error("Invalid SOLUTION_SKILLS_ENABLED");
+    const skillsDatabaseUrl = env.SOLUTION_SKILLS_DATABASE_URL ?? env.AUTH_DATABASE_URL;
+    if (env.SOLUTION_SKILLS_DATABASE_URL) {
+        let url: URL;
+        try { url = new URL(env.SOLUTION_SKILLS_DATABASE_URL); } catch { throw new Error("Invalid SOLUTION_SKILLS_DATABASE_URL"); }
+        if (!["postgres:", "postgresql:"].includes(url.protocol) || !url.hostname || !url.pathname.slice(1)) throw new Error("Invalid SOLUTION_SKILLS_DATABASE_URL");
+    }
     // 数学代理变体，默认为 general 或 adaptive
     const mathVariant = env.MATH_AGENT_VARIANT ?? (nodeEnv === "test" ? "general" : "adaptive");
     if (!["general", ...ALL_MATH_VARIANTS].includes(mathVariant)) throw new Error("Invalid MATH_AGENT_VARIANT");
@@ -96,6 +105,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
         if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Invalid LLM_BASE_URL");
     }
     const llmModel = env.LLM_MODEL ?? (mathVariant === "general" ? "deepseek-flash" : "glm-4.5-air");
+    const skillEmbeddingBase = env.SOLUTION_SKILLS_EMBEDDING_BASE_URL ?? "https://open.bigmodel.cn/api/paas/v4";
+    const skillEmbeddingUrl = new URL(skillEmbeddingBase);
+    if (skillEmbeddingUrl.protocol !== "https:" || skillEmbeddingUrl.username || skillEmbeddingUrl.password || skillEmbeddingUrl.search || skillEmbeddingUrl.hash)
+        throw new Error("Invalid SOLUTION_SKILLS_EMBEDDING_BASE_URL");
     const reviewEnabled = env.ANSWER_REVIEW_ENABLED ?? (nodeEnv !== "test" && /^glm-/i.test(llmModel) ? "true" : "false");
     const reviewModel = env.ANSWER_REVIEW_MODEL ?? "glm-4.7";
     const reviewBaseUrl = env.ANSWER_REVIEW_BASE_URL ?? "https://open.bigmodel.cn/api/paas/v4";
@@ -124,6 +137,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
         llmFallback = { model: env.LLM_FALLBACK_MODEL, baseUrl, apiKey: env.LLM_FALLBACK_API_KEY || env.LLM_API_KEY };
     } else if (env.LLM_FALLBACK_BASE_URL || env.LLM_FALLBACK_API_KEY) throw new Error("Fallback settings require LLM_FALLBACK_MODEL");
     return {
+        skills: { enabled: skillsEnabled === "true", databaseUrl: skillsDatabaseUrl,
+            embeddingBaseUrl: skillEmbeddingBase, embeddingApiKey: env.SOLUTION_SKILLS_EMBEDDING_API_KEY ?? env.EMBEDDING_API_KEY ??
+                (skillEmbeddingBase.replace(/\/$/, "") === llmBaseUrl.replace(/\/$/, "") ? env.LLM_API_KEY : undefined),
+            directory: env.SOLUTION_SKILLS_DIR ?? fileURLToPath(new URL("../../data/solution-skills", import.meta.url)) },
         auth: loadAuthConfig(env),
         verification: { enabled: reviewEnabled === "true", model: reviewModel, baseUrl: reviewBaseUrl,
             apiKey: env.ANSWER_REVIEW_API_KEY || env.LLM_API_KEY, timeoutMs: reviewTimeoutMs, maxRevisions },

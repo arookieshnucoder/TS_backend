@@ -16,9 +16,14 @@ import type { TextCompressor } from "./context/contracts.js";
 import { prepareRun } from "./run-preparation.js";
 import { toolDiscovery } from "./tool-discovery.js";
 import { SubAgentSession, type SubAgentDefinition, type SubAgentScope, type DelegationLimits } from "./subagents.js";
+import type { SolutionSkillLibrary } from "./skills/library.js";
+import { SKILL_AGENTS } from "./skills/contracts.js";
+import { parseSkillMatch, skillMatchInput } from "./skills/matching.js";
 
 /** 运行时策略选项，集中控制工具上限、恢复、子任务和答案后处理。 */
 export interface HarnessOptions {
+    /** Subject-scoped solution methods; child agents receive no library tools or learning privileges. */
+    skills?: SolutionSkillLibrary;
     subAgents?: SubAgentDefinition[];
     delegation?: Partial<DelegationLimits>;
     resultProcessors?: AgentResultProcessor[];
@@ -38,6 +43,8 @@ export interface HarnessToolContext { compression: TextCompressor; }
 export type HarnessToolFactory = (context: HarnessToolContext, signal?: AbortSignal) => Promise<RegisteredTool[]>;
 /** 一轮执行的输入，包含当前问题、历史、工具、预取调用及追踪元信息。 */
 export interface HarnessInput {
+    /** Original evidence without reference answers, also used to audit learned methods. */
+    evidence?: unknown;
     onEvent?(name: string, fields?: Record<string, unknown>): void;
     history: AgentMessage[];
     question: string;
@@ -56,7 +63,7 @@ export interface HarnessRunner {
 export class AgentHarness implements HarnessRunner {
     private readonly tokens: TokenBudget;
     private readonly recovery: RecoveryPolicy;
-    private readonly options: Required<Omit<HarnessOptions, "recovery">>;
+    private readonly options: Required<Omit<HarnessOptions, "recovery" | "skills">> & Pick<HarnessOptions, "skills">;
     constructor(private readonly model: AgentModel, private readonly workflow: AgentWorkflow,
         private readonly instructions: AgentInstructions, private readonly config: ContextConfig,
         private readonly logger: Logger, options: HarnessOptions = {}) {
@@ -73,6 +80,7 @@ export class AgentHarness implements HarnessRunner {
         new SubAgentSession(options.subAgents, options.delegation);
         if (options.resultProcessors?.some(processor => typeof processor?.process !== "function")) throw new TypeError("Invalid result processor");
         this.options = { fallbackModels: fallbackModels.map(({ name, model }) => ({ name, model })), maxCallsPerStep, toolTimeoutMs, toolOutputTokens, maxProtocolRepairs, maxMcpTools,
+            skills: options.skills,
             subAgents: [...(options.subAgents ?? [])], delegation: { ...options.delegation }, resultProcessors: [...(options.resultProcessors ?? [])] };
         this.tokens = new TokenBudget(config);
         this.recovery = recoveryPolicy(options.recovery);
@@ -100,9 +108,17 @@ export class AgentHarness implements HarnessRunner {
                 const compression = new ContextCompressor(model, this.tokens, this.config);
                 const supplied = typeof input.tools === "function" ? await input.tools({ compression }, signal) : input.tools;
                 signal?.throwIfAborted();
-                const { tools, history, prefetchHistory } = prepareRun(input, supplied, this.config, this.tokens, event);
+                const skills = scope.depth === 0 ? this.options.skills?.open(String(metadata.subject ?? "general"), event,
+                    session.definitions.has(SKILL_AGENTS.matcher) ? async (query, childSignal) => {
+                        const matched = await runtime!.delegate({ agent: SKILL_AGENTS.matcher, input: skillMatchInput(query) }, childSignal);
+                        return parseSkillMatch(matched.content);
+                    } : undefined) : undefined;
+                if (skills && supplied.some(tool => tool.definition.name === "solution_skills")) throw new TypeError("Reserved harness tool: solution_skills");
+                const { tools, history, prefetchHistory } = prepareRun(input, skills ? [...supplied, skills.tool()] : supplied, this.config, this.tokens, event);
+                const instructions = skills ? { ...this.instructions, system: this.instructions.system +
+                    "\n宿主已提供solution_skills解题经验工具：search/match检索并核对适用边界，load加载方法与子经验，history查看版本，propose新增草稿，update修订已有经验，split拆分综合经验。更新与拆分须提供skillId、当前expectedRevision和reason。update优先使用patch，只替换需要修改的草稿字段；列表按字段替换，须保留原有正确条目，无需重写其他字段。遇到同方法子题优先复用。本阶段先完整解答学科题目；用户的经验维护要求由宿主在答案复核通过后自动整理执行，可以不在解题阶段调用写操作。最终面向学习者只输出学科解答，不展示工具调用JSON、经验ID或维护草稿，维护结果由宿主运行轨迹记录。即使暂存变更，也必须输出全部题解，不能以工具JSON或工具标签代替答案。所有变更须独立审核，不能提前宣称已经发布。以本题原文为准。" } : this.instructions;
                 const builder = new ContextBuilder(history, input.question, this.config,
-                    this.tokens, compression, event, this.instructions);
+                    this.tokens, compression, event, instructions);
                 const registry = new ToolRegistry(this.tokens, this.options.toolOutputTokens, this.options.toolTimeoutMs, event, this.recovery);
                 // 发现工具自身也占上下文预算；有 MCP 时先把定义纳入筛选的固定开销。
                 if (tools.some(tool => tool.source?.type === "mcp") && !tools.some(tool => tool.definition.name === "tool_search")) {
@@ -127,6 +143,12 @@ export class AgentHarness implements HarnessRunner {
                 if (prefetchHistory && runtime.tools.some(tool => tool.name === "history_lookup")) {
                     await runtime.prefetch([{ id: "harness-history-1", name: "history_lookup", arguments: { query: input.question } }], "检索历史原文和最新条件。", signal);
                 }
+                if (skills) {
+                    await runtime.prefetch([{ id: "harness-skills-search", name: "solution_skills", arguments: { action: "search", query: input.question.slice(0, 12000) } }], "先检索当前学科可复用的解题方法。", signal);
+                    for (const [index, id] of skills.initialLoads().entries()) await runtime.prefetch([
+                        { id: `harness-skills-load-${index}`, name: "solution_skills", arguments: { action: "load", skillId: id } },
+                    ], "读取相关方法的完整适用条件与解题流程。", signal);
+                }
                 if (input.initialCalls?.length) await runtime.prefetch(input.initialCalls, "先获取题目证据和条件检查。", signal);
                 if (input.proactiveTools !== false && !input.initialCalls?.length && input.question.length > 1000 &&
                     /方程|抛物线|三角形|概率|x[²^]/.test(input.question) && runtime.tools.some(tool => tool.name === "math_analyze")) {
@@ -136,8 +158,9 @@ export class AgentHarness implements HarnessRunner {
                 signal?.throwIfAborted();
                 for (const processor of this.options.resultProcessors) {
                     signal?.throwIfAborted();
-                    returned = await processor.process(returned, runtime, { question: input.question, history: input.history }, signal);
+                    returned = await processor.process(returned, runtime, { question: input.question, history: input.history, evidence: input.evidence }, signal);
                 }
+                await skills?.finish(returned, runtime, { question: input.question, history: input.history, evidence: input.evidence }, signal);
                 signal?.throwIfAborted();
                 const result = { ...returned, modelTurns: runtime.modelInvocationCount, toolCalls: runtime.executedToolCount };
                 event("agent.completed", { modelTurns: result.modelTurns, toolCalls: result.toolCalls, durationMs: Date.now() - started });

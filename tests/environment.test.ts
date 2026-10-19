@@ -23,6 +23,8 @@ test("backend env file restores port/origin but never supplies credentials", asy
       "AGENT_TRACE_ENABLED=false", "AGENT_RUN_DATA_DIR=./data/custom-runs", "AGENT_TRACE_MAX_EVENTS=128",
       "ANSWER_REVIEW_ENABLED=false", "ANSWER_REVIEW_MODEL=glm-4.7", "ANSWER_REVIEW_TIMEOUT_MS=45000", "ANSWER_REVIEW_MAX_REVISIONS=2",
       "ANSWER_REVIEW_API_KEY=ignored-review-key",
+      "SOLUTION_SKILLS_ENABLED=true", "SOLUTION_SKILLS_DATABASE_URL=postgresql://file:secret@localhost/private",
+      "SOLUTION_SKILLS_EMBEDDING_API_KEY=ignored-skill-key",
     ].join("\n"));
     const env = loadEnvironment({}, path);
     const config = loadConfig(env);
@@ -55,6 +57,7 @@ test("backend env file restores port/origin but never supplies credentials", asy
     assert.equal(config.verification.timeoutMs, 45000);
     assert.equal(config.verification.maxRevisions, 2);
     assert.equal(config.verification.apiKey, undefined);
+    assert.equal(config.skills.enabled, true); assert.equal(config.skills.databaseUrl, undefined); assert.equal(config.skills.embeddingApiKey, undefined);
     const terminal = { PORT: "8090", LLM_API_KEY: "terminal-key", INTERNAL_API_TOKEN: "terminal-token" };
     const overridden = loadConfig(loadEnvironment(terminal, path));
     assert.equal(overridden.port, 8090);

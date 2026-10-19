@@ -6,7 +6,7 @@ import { PostgresAuthStore } from "../src/infrastructure/persistence/postgres/po
 import { AuthService, tokenHash } from "../src/modules/auth/auth.service.js";
 import { loadAuthConfig } from "../src/modules/auth/config.js";
 
-test("real PostgreSQL: concurrent bootstrap, duplicate rollback, field constraints, restart, expiry and logout", {
+test("real PostgreSQL: legacy cleanup, concurrent first registration, rollback, restart, expiry and logout", {
     skip: !process.env.AUTH_TEST_DATABASE_URL,
 }, async () => {
     const connectionString = process.env.AUTH_TEST_DATABASE_URL!;
@@ -18,7 +18,15 @@ test("real PostgreSQL: concurrent bootstrap, duplicate rollback, field constrain
     try {
         await admin.query(`CREATE SCHEMA ${schema}`);
         stores = [new PostgresAuthStore(url.toString()), new PostgresAuthStore(url.toString())];
+        // 模拟旧版本遗留表；初始化应直接移除，不再读取它的状态。
+        await stores[0]!.pool.query("CREATE TABLE auth_bootstrap (id INTEGER PRIMARY KEY, claimed BOOLEAN NOT NULL); INSERT INTO auth_bootstrap VALUES (1, TRUE)");
         await Promise.all(stores.map(store => store.initialize()));
+        assert.equal((await stores[0]!.pool.query("SELECT to_regclass('auth_bootstrap') AS legacy")).rows[0].legacy, null);
+        const now = new Date();
+        await assert.rejects(stores[0]!.register({ userId: randomBytes(32).toString("hex"), username: "rollback@example.com", passwordHash: "unused",
+            createdAt: now, loginAt: now }, { userId: randomBytes(32).toString("hex"), tokenHash: randomBytes(32).toString("hex"),
+            createdAt: now, expiresAt: new Date(now.getTime() + 60000) }), { code: "23503" });
+        assert.equal((await stores[0]!.pool.query("SELECT COUNT(*) FROM auth_users")).rows[0].count, "0");
         const services = stores.map(store => new AuthService(store, config));
         const results = await Promise.all(Array.from({ length: 6 }, (_, i) => services[i % 2]!.register({ username: `user${i}@example.com`, password: "secure password" })));
         assert.equal(results.filter(r => r.user.role === "admin").length, 1);
@@ -46,9 +54,13 @@ test("real PostgreSQL: concurrent bootstrap, duplicate rollback, field constrain
         assert.equal(await restarted.current(loggedIn.token), null);
         const again = await restarted.login({ username: saved.user.username, password: "secure password" });
         await restarted.logout(again.token); assert.equal(await restarted.current(again.token), null);
-        // Removing accounts must never reopen automatic admin registration.
+        // 仅删除管理员而保留其他用户时，新注册仍是普通用户。
+        await stores[0]!.pool.query("DELETE FROM auth_users WHERE role = 'admin'");
+        assert.equal((await restarted.register({ username: "remaining@example.com", password: "secure password" })).user.role, "user");
+        // 用户表清空后，下一次成功注册重新成为首个管理员。
         await stores[0]!.pool.query("DELETE FROM auth_users");
-        assert.equal((await restarted.register({ username: "later@example.com", password: "secure password" })).user.role, "user");
+        assert.equal((await restarted.register({ username: "later@example.com", password: "secure password" })).user.role, "admin");
+        assert.equal((await restarted.register({ username: "next@example.com", password: "secure password" })).user.role, "user");
     } finally {
         await Promise.all(stores.map(store => store.close()));
         // Only the randomly generated schema owned by this test is removed.

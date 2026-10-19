@@ -37,7 +37,7 @@ export class PassageHarness implements HarnessRunner {
         const prepareId = `${policy.subject}-prepare-1`;
 
         return this.inner.run({
-            ...input, question, historyPolicy: "full", proactiveTools: false,
+            ...input, question, evidence: { title: task.passage.title, original: full }, historyPolicy: "full", proactiveTools: false,
             tools: async ({ compression }) => {
                 const lookup = defineReadOnlyTool({
                     name: lookupName,

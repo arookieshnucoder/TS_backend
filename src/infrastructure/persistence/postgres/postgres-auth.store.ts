@@ -20,10 +20,7 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 );
 CREATE INDEX IF NOT EXISTS auth_sessions_expiry ON auth_sessions(expires_at);
 CREATE INDEX IF NOT EXISTS auth_sessions_user ON auth_sessions(user_id);
-CREATE TABLE IF NOT EXISTS auth_bootstrap (
-    id INTEGER PRIMARY KEY CHECK (id = 1), claimed BOOLEAN NOT NULL
-);
-INSERT INTO auth_bootstrap(id, claimed) VALUES (1, EXISTS(SELECT 1 FROM auth_users)) ON CONFLICT DO NOTHING;
+DROP TABLE IF EXISTS auth_bootstrap;
 `;
 function user(row: Record<string, any>): AuthUser {
     return { userId: row.user_id, username: row.username, role: row.role,
@@ -62,13 +59,12 @@ export class PostgresAuthStore implements AuthStore {
     async register(input: Omit<StoredUser, "role">, session: AuthSession): Promise<AuthUser> {
         try {
             return await this.transaction(async client => {
-                const { rows } = await client.query("SELECT claimed FROM auth_bootstrap WHERE id = 1 FOR UPDATE");
-                const role = rows[0].claimed ? "user" : "admin";
+                // 串行检查与写入，空用户表的首次注册成为管理员，避免并发重复授予。
+                await client.query("LOCK TABLE auth_users IN SHARE ROW EXCLUSIVE MODE");
                 const result = await client.query(`INSERT INTO auth_users(user_id, username, password_hash, role, created_at, login_at)
-                    VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-                [input.userId, input.username, input.passwordHash, role, input.createdAt, input.loginAt]);
+                    VALUES ($1, $2, $3, CASE WHEN EXISTS(SELECT 1 FROM auth_users) THEN 'user' ELSE 'admin' END, $4, $5) RETURNING *`,
+                [input.userId, input.username, input.passwordHash, input.createdAt, input.loginAt]);
                 await this.insertSession(client, session);
-                await client.query("UPDATE auth_bootstrap SET claimed = TRUE WHERE id = 1");
                 return user(result.rows[0]);
             });
         } catch (error) {
