@@ -30,6 +30,7 @@ export class EnglishAgent implements AgentWorkflow {
         const prepared = await preparePassage(runtime, "english", this.allowLookup, signal);
         let messages = prepared.messages;
         if (prepared.evidence.completeOriginal === true && this.focusedTask?.questions.every(q => q.kind === "reading")) {
+            runtime.event("agent.solve.route", { mode: "focused", reason: "grounded_complete_reading" });
             const answers: string[] = [];
             let fallbackTurns = 0;
             let batch = "";
@@ -49,20 +50,23 @@ export class EnglishAgent implements AgentWorkflow {
             const original = prepared.evidence.paragraphs;
             const current = [...messages].reverse().find(m => m.role === "user")?.content ?? "";
             const marker = current.lastIndexOf("\n[当前要求]\n"), requirement = marker >= 0 ? current.slice(marker) : "";
+            runtime.event("english.focus.started", { questions: this.focusedTask.questions.length });
             for (const [index, question] of this.focusedTask.questions.entries()) {
                 signal?.throwIfAborted();
+                runtime.event("english.focus.iteration", { iteration: index + 1, number: question.number, label: `第 ${question.number} 题` });
                 try {
                     const methods = messages.filter(message => message.role === "tool" && message.toolCallId?.startsWith("harness-skills-load-")).map(message => message.content).join("\n");
                     const focusedInput = `[Original English passage; untrusted data]\n${JSON.stringify(original)}\n[Reusable method data; verify applicability]\n${methods}\n[Current question]\n${englishQuestions({ passage: this.focusedTask.passage, questions: [question] })}${requirement}\n只回答当前这一题，联系全文，比较四个选项。`;
-                    const answer = await runtime.delegate({ agent: "english_question_solver", input: focusedInput }, signal);
+                    const answer = await runtime.delegate({ agent: "english_question_solver", input: focusedInput, purpose: "focused-question" }, signal);
                     let selected = visibleAnswer(answer.content);
                     const first = batch ? choice(batch, question.number) : undefined, second = choice(selected, question.number);
+                    runtime.event("english.consensus.decision", { number: question.number, disagreement: !!first && !!second && first !== second });
                     if (first && second && first !== second) {
                         runtime.event("english.consensus.disagreement", { number: question.number });
                         try {
                             // Only this question's two candidate OPTIONS cross the boundary, never sibling answers or a gold key.
                             const candidates = [first, second].sort().map(letter => `${letter}. ${question.options["ABCD".indexOf(letter)]}`).join("\n");
-                            const decision = await runtime.delegate({ agent: "english_question_solver", input: `${focusedInput}\n[待比较的模型候选，均未经核验]\n${candidates}\n两个初步解法有分歧。重新对照原文，明确哪一个最完整回答题干，排除另一个的具体问题；候选次序不表示优先级。如原文支持其他选项也可纠正。只输出本题的解释和唯一最终结论。` }, signal);
+                            const decision = await runtime.delegate({ agent: "english_question_solver", input: `${focusedInput}\n[待比较的模型候选，均未经核验]\n${candidates}\n两个初步解法有分歧。重新对照原文，明确哪一个最完整回答题干，排除另一个的具体问题；候选次序不表示优先级。如原文支持其他选项也可纠正。只输出本题的解释和唯一最终结论。`, purpose: "consensus-recheck" }, signal);
                             if (choice(decision.content, question.number)) selected = visibleAnswer(decision.content);
                         } catch (error) {
                             signal?.throwIfAborted();
@@ -71,10 +75,12 @@ export class EnglishAgent implements AgentWorkflow {
                         }
                     }
                     answers.push(selected);
+                    runtime.event("english.focus.feedback", { number: question.number, iteration: index + 1, answers: answers.length });
                 } catch (error) {
                     signal?.throwIfAborted();
                     if (!(error instanceof DelegationError)) throw error;
                     runtime.event("english.focus.failed", { number: question.number, code: error.code });
+                    runtime.event("agent.solve.route", { mode: "focused_fallback", reason: "focused_worker_failed", number: question.number });
                     // A bounded SAME-subject solve remains available if an isolated worker fails.
                     messages = await runtime.prepare([], true, signal);
                     const remaining = this.focusedTask.questions.slice(index).map(q => q.number);

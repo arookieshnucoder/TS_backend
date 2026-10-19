@@ -12,6 +12,8 @@ export class ModelProtocolError extends Error {
 
 /** 统一模型调用接口，通用及学科工作流都通过它获取下一轮回复。 */
 export interface AgentModel {
+  /** Non-secret provider model identifier used in administrator traces. */
+  readonly modelId?: string;
   /**
    * 执行一次代理模型的对话轮次。
    * @param messages 当前对话的消息列表。

@@ -10,6 +10,7 @@ import type { AgentMessage, ToolDefinition } from "../../modules/agent/contracts
  * 封装了与 LangChain 聊天模型的交互逻辑，包括消息转换、工具调用和响应处理。
  */
 export class LangChainChatModel implements AgentModel {
+    get modelId() { return this.config.llmModel; }
     constructor(private readonly config: LlmConfig, private readonly errors: ErrorContainer = errorContainer) { }
     private model(maxOutputTokens = 4096) {
         if (!this.config.llmApiKey) return this.errors.fail("MODEL_REQUEST_FAILED", "后端未设置 LLM_API_KEY。");

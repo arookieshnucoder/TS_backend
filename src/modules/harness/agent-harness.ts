@@ -94,7 +94,11 @@ export class AgentHarness implements HarnessRunner {
         const signal = inheritedSignal ? AbortSignal.any([inheritedSignal, lifetime.signal]) : lifetime.signal;
         const started = Date.now();
         const metadata = { ...input.metadata };
+        let workflowMode: string | undefined;
         const event = (name: string, fields: Record<string, unknown> = {}) => {
+            if (name === "agent.solve.route" || name === "agent.solve.started" || name === "agent.solve.limit") workflowMode = String(fields.mode);
+            if (name === "agent.processing.started") workflowMode = "postprocess";
+            if (!name.startsWith("agent.subagent.")) fields = { ...fields, workflowMode: workflowMode ?? "prefetch" };
             // Content previews are persisted through the run recorder, not emitted to stdout.
             const metrics = Object.fromEntries(Object.entries(fields).filter(([key]) => !["arguments", "result", "content", "calls", "question"].includes(key)));
             this.logger.info(name, redact({ ...metadata, ...metrics }) as Record<string, unknown>);
@@ -136,7 +140,7 @@ export class AgentHarness implements HarnessRunner {
                         return child.runScoped({ question: request.input, history: request.context ?? [], tools: definition.tools ?? [],
                             proactiveTools: false, metadata: { ...metadata, taskId: childScope.taskId, parentTaskId: scope.taskId ?? null, agent: definition.name },
                             onEvent: (name, fields) => name.startsWith("agent.subagent.") ? event(name, fields) :
-                                event("agent.subagent.event", { ...fields, event: name, taskId: childScope.taskId, parentTaskId: scope.taskId ?? null, agent: definition.name }),
+                                event("agent.subagent.event", { ...fields, event: name, taskId: childScope.taskId, parentTaskId: scope.taskId ?? null, agent: definition.name, ...(request.purpose ? { purpose: request.purpose } : {}) }),
                         }, operation, session, childScope);
                     }));
                 // Acquire historical facts before the first model turn, avoiding lengthy unguided reasoning.
@@ -154,13 +158,20 @@ export class AgentHarness implements HarnessRunner {
                     /方程|抛物线|三角形|概率|x[²^]/.test(input.question) && runtime.tools.some(tool => tool.name === "math_analyze")) {
                     await runtime.prefetch([{ id: "harness-analyze-1", name: "math_analyze", arguments: { query: input.question } }], "先提取长问题的条件和可执行检查。", signal);
                 }
+                event("agent.workflow.started");
                 let returned = await this.workflow.run(runtime, signal);
+                event("agent.workflow.completed", { modelTurns: returned.modelTurns, toolCalls: returned.toolCalls });
+                if (this.options.resultProcessors.length) event("agent.processing.started");
                 signal?.throwIfAborted();
                 for (const processor of this.options.resultProcessors) {
                     signal?.throwIfAborted();
                     returned = await processor.process(returned, runtime, { question: input.question, history: input.history, evidence: input.evidence }, signal);
                 }
-                await skills?.finish(returned, runtime, { question: input.question, history: input.history, evidence: input.evidence }, signal);
+                if (skills) {
+                    event("agent.skills.maintenance.started");
+                    await skills.finish(returned, runtime, { question: input.question, history: input.history, evidence: input.evidence }, signal);
+                    event("agent.skills.maintenance.completed");
+                }
                 signal?.throwIfAborted();
                 const result = { ...returned, modelTurns: runtime.modelInvocationCount, toolCalls: runtime.executedToolCount };
                 event("agent.completed", { modelTurns: result.modelTurns, toolCalls: result.toolCalls, durationMs: Date.now() - started });

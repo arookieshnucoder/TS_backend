@@ -59,6 +59,7 @@ export class SubAgentSession {
         signal?.throwIfAborted();
         const definition = this.definitions.get(task?.agent);
         if (!definition || !parent.allowed.includes(task.agent)) throw new DelegationError("SUBAGENT_NOT_ALLOWED");
+        if (task.purpose !== undefined && (typeof task.purpose !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(task.purpose))) throw new DelegationError("SUBAGENT_INVALID_INPUT");
         if (typeof task.input !== "string" || !task.input.trim() || task.input.length > 200000 ||
             task.context !== undefined && (!Array.isArray(task.context) || task.context.length > 100 || task.context.some(message =>
                 !message || !["user", "assistant"].includes(message.role) || typeof message.content !== "string" || message.content.length > 200000 || message.toolCalls || message.toolCallId))) throw new DelegationError("SUBAGENT_INVALID_INPUT");
@@ -67,7 +68,7 @@ export class SubAgentSession {
         if (this.active >= this.limits.maxConcurrent) throw new DelegationError("SUBAGENT_CONCURRENCY_LIMIT");
         this.calls++; this.active++;
         const taskId = randomUUID(), started = Date.now();
-        const fields = { taskId, parentTaskId: parent.taskId ?? null, agent: definition.name, depth: parent.depth + 1 };
+        const fields = { taskId, parentTaskId: parent.taskId ?? null, agent: definition.name, depth: parent.depth + 1, ...(task.purpose ? { purpose: task.purpose } : {}) };
         const scope: SubAgentScope = { depth: parent.depth + 1, taskId, allowed: definition.delegates ?? [] };
         const deadline = AbortSignal.timeout(this.limits.timeoutMs);
         const combined = signal ? AbortSignal.any([signal, deadline]) : deadline;

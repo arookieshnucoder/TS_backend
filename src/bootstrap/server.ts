@@ -7,11 +7,12 @@ import { createDependencies } from "./container.js";
 export async function startServer() {
     const config = loadConfig();
     const dependencies = createDependencies({}, config);
-    try { await dependencies.auth?.initialize(); await dependencies.solutionSkills?.store.initialize(); }
+    try { await dependencies.auth?.initialize(); await dependencies.solutionSkills?.store.initialize(); await dependencies.workflows?.initialize(); }
     catch {
         logger.error("server.auth_database_unavailable");
         await dependencies.auth?.store.close();
         await dependencies.solutionSkills?.store.close();
+        await dependencies.workflows?.close();
         process.exitCode = 1;
         return;
     }
@@ -22,7 +23,7 @@ export async function startServer() {
     server.on("error", (error: NodeJS.ErrnoException) => {
         logger.error("server.start_failed", { code: error.code ?? "UNKNOWN" });
         process.exitCode = 1;
-        void Promise.allSettled([dependencies.mcp.close(), dependencies.auth?.store.close(), dependencies.solutionSkills?.store.close()]);
+        void Promise.allSettled([dependencies.mcp.close(), dependencies.auth?.store.close(), dependencies.solutionSkills?.store.close(), dependencies.workflows?.close()]);
     });
 
     let closing = false;
@@ -37,7 +38,7 @@ export async function startServer() {
         }, config.shutdownTimeoutMs);
         timeout.unref();
         server.close(async (error) => {
-            const results = await Promise.allSettled([dependencies.mcp.close(), dependencies.auth?.store.close(), dependencies.solutionSkills?.store.close()]);
+            const results = await Promise.allSettled([dependencies.mcp.close(), dependencies.auth?.store.close(), dependencies.solutionSkills?.store.close(), dependencies.workflows?.close()]);
             clearTimeout(timeout);
             process.off("SIGINT", onInterrupt);
             process.off("SIGTERM", onTerminate);

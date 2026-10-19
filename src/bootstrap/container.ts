@@ -28,10 +28,14 @@ import { IdentityChatSessionRepository } from "../infrastructure/persistence/ide
 import { PostgresSkillStore } from "../infrastructure/persistence/postgres/postgres-skill.store.js";
 import { SolutionSkillLibrary } from "../modules/harness/skills/library.js";
 import { withSolutionSkills } from "./solution-skills.js";
+import { WorkflowStore } from "../modules/workflows/workflow.store.js";
+import { workflowTemplate } from "../modules/workflows/templates.js";
+import { withWorkflowTrace } from "../modules/workflows/trace-workflow.js";
 
 
 /** 应用启动后共享的依赖集合；学科题库按需加载，会话服务只依赖 ChatAgent 接口。 */
 export interface AppDependencies {
+    workflows?: WorkflowStore;
     solutionSkills?: SolutionSkillLibrary;
     auth?: AuthService;
     englishLibrary?: EnglishLibrary;
@@ -54,7 +58,7 @@ function createModel(provider: LlmConfig, thinking: "enabled" | "disabled", erro
 }
 
 export function createDependencies(overrides: DependencyOverrides = {}, config: AppConfig = loadConfig()): AppDependencies {
-    const allowed = new Set(["solutionSkills", "auth", "authStore", "errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "reviewerModel", "mcp", "fallbackModels", "runs", "mathOcr", "readingLibrary", "englishLibrary"]);
+    const allowed = new Set(["workflows", "solutionSkills", "auth", "authStore", "errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "reviewerModel", "mcp", "fallbackModels", "runs", "mathOcr", "readingLibrary", "englishLibrary"]);
     for (const key of Object.keys(overrides)) {
         if (!allowed.has(key)) throw new TypeError(`Unsupported dependency override: ${key}`);
         if (overrides[key as keyof DependencyOverrides] == null) throw new TypeError(`Dependency override ${key} must not be null or undefined`);
@@ -68,6 +72,7 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
     const errors = overrides.errors ?? errorContainer;
     const repository = new IdentityChatSessionRepository(overrides.chatSessionRepository ?? new JsonChatSessionRepository(config.sessionDataDir));
     const auth = overrides.auth ?? (config.auth.enabled ? new AuthService(overrides.authStore ?? new PostgresAuthStore(config.auth.databaseUrl), config.auth) : undefined);
+    const workflows = overrides.workflows ?? (config.auth.enabled ? new WorkflowStore(config.auth.databaseUrl, ["math", "chinese", "english"].map(subject => workflowTemplate(subject as "math"))) : undefined);
     const log = overrides.logger ?? logger;
     const provider: LlmConfig = { llmApiKey: config.llmApiKey, llmModel: config.llmModel, llmBaseUrl: config.llmBaseUrl, llmTimeoutMs: config.llmTimeoutMs };
     const mcp = overrides.mcp ?? new McpManager(config.mcp.configFile, log, undefined, config.mcp.timeoutMs);
@@ -112,6 +117,7 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
         }
     }
     return {
+        workflows,
         solutionSkills,
         auth,
         englishLibrary,
@@ -122,6 +128,6 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
         errors,
         chatSessionRepository: repository,
         logger: log,
-        agentHarness,
+        agentHarness: workflows && runs && !overrides.agentHarness ? withWorkflowTrace(agentHarness, workflows, config) : agentHarness,
     };
 }

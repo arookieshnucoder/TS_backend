@@ -21,11 +21,14 @@ export class EnglishResponseProcessor implements AgentResultProcessor {
     constructor(private readonly task: EnglishTask) {}
     async process(result: AgentResult, runtime: AgentRuntime, _context: unknown, signal?: AbortSignal): Promise<AgentResult> {
         let content = result.content;
+        runtime.event("english.response.started", { maxAttempts: 2 });
         for (let attempt = 0; attempt <= 1; attempt++) {
             signal?.throwIfAborted();
             const canonical = canonicalEnglishResponse(content, this.task);
+            runtime.event("english.response.check", { attempt, iteration: attempt + 1, valid: !!canonical, canRepair: !canonical && attempt === 0 && result.modelTurns < runtime.maxToolSteps + 1 });
             if (canonical) {
                 runtime.event("english.response.validated", { repaired: attempt > 0, questions: this.task.questions.length });
+                runtime.event("english.response.completed", { status: "success", attempts: attempt + 1 });
                 return { ...result, content: canonical };
             }
             runtime.event("english.response.invalid", { attempt, code: "MISSING_OR_CONFLICTING_CHOICE" });
@@ -35,6 +38,7 @@ export class EnglishResponseProcessor implements AgentResultProcessor {
             content = turn.content;
         }
         runtime.event("english.response.unavailable", { reason: "invalid_after_bounded_repair" });
+        runtime.event("english.response.completed", { status: "unavailable" });
         return { ...result, content: "本次英语答案存在遗漏或冲突，暂不能提供可靠答案，请重试。" };
     }
 }

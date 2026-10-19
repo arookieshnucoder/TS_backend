@@ -31,6 +31,7 @@ export async function answerPassage(runtime: AgentRuntime, subject: "reading" | 
     prepared: PreparedPassage, signal?: AbortSignal) {
     const normalize = (content: string) => visibleAnswer(content, `${subject.toUpperCase()}_VISIBLE_ANSWER_MISSING`);
     if (allowLookup && prepared.evidence.completeOriginal !== true) {
+        runtime.event("agent.solve.route", { mode: "iterative", reason: "incomplete_original_lookup_allowed" });
         try {
             const result = await new AskAgent().run(runtime, signal);
             return { ...result, content: normalize(result.content) };
@@ -43,6 +44,7 @@ export async function answerPassage(runtime: AgentRuntime, subject: "reading" | 
         }
     }
     const messages = allowLookup ? await runtime.prepare([], true, signal) : prepared.messages;
+    runtime.event("agent.solve.route", { mode: "direct", reason: prepared.evidence.completeOriginal === true ? "complete_original" : "lookup_disabled" });
     const turn = await runtime.complete(messages, [], signal);
     return { content: normalize(turn.content), modelTurns: 1, toolCalls: 0 };
 }

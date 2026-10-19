@@ -28,6 +28,7 @@ function parseToolCalls(value: unknown): ToolCall[] {
 
 /** 只转换供应商协议；不猜工具名、不修补 JSON、不把隐藏推理当成最终答案。 */
 export class GlmModel implements AgentModel {
+    get modelId() { return this.config.llmModel; }
     constructor(private readonly config: LlmConfig, readonly thinking: "enabled" | "disabled" = "disabled") {}
     async turn(messages: AgentMessage[], tools: ToolDefinition[], signal?: AbortSignal, maxOutputTokens?: number): Promise<AgentTurn> {
         const current = [...messages].reverse().find(m => m.role === "user")?.content ?? "";

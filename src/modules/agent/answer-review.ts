@@ -26,6 +26,7 @@ export class AnswerReview implements AgentResultProcessor {
         };
         try {
             const evidence = this.evidence(context);
+            runtime.event("agent.review.loop.started", { maxRevisions: this.maxRevisions, maxAttempts: this.maxRevisions + 1 });
             for (let revision = 0; ; revision++) {
                 signal?.throwIfAborted();
                 attempts++;
@@ -33,11 +34,15 @@ export class AnswerReview implements AgentResultProcessor {
                 const review = await runtime.delegate({ agent: this.reviewer, input: JSON.stringify({ evidence, candidate }) }, signal);
                 const report = parseReviewReport(review.content);
                 runtime.event("agent.review.report", { attempt: attempts, verdict: report.verdict, reason: report.reason, issues: report.issues });
+                const canRevise = report.verdict === "fail" && revision < this.maxRevisions;
+                runtime.event("agent.review.decision", { attempt: attempts, verdict: report.verdict, canRevise, remainingRevisions: Math.max(0, this.maxRevisions - revision) });
                 if (report.verdict === "pass") return finish("passed", candidate);
                 if (report.verdict === "uncertain") return finish("uncertain", "现有信息下暂时无法可靠确认答案。请检查题目条件、原文或图示是否完整。");
                 if (revision >= this.maxRevisions) return finish("failed", "这次解答未能通过复核，暂时无法给出可靠答案。");
+                runtime.event("agent.review.revision.started", { attempt: attempts, revision: revision + 1, agent: this.reviser });
                 const repair = await runtime.delegate({ agent: this.reviser, input: JSON.stringify({ evidence, candidate, review: report }) }, signal);
                 candidate = repair.content; revised = true;
+                runtime.event("agent.review.revision.completed", { attempt: attempts, revision: revision + 1, nextAttempt: attempts + 1 });
             }
         } catch (error) {
             signal?.throwIfAborted();

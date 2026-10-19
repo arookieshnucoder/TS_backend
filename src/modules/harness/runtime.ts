@@ -93,6 +93,7 @@ export class HarnessRuntime implements AgentRuntime {
                 if (!tools.length && turn.toolCalls.length) reject("TOOLS_DISABLED", "Agent tool step limit exceeded");
                 if (!turn.toolCalls.length && !turn.content.trim()) reject("EMPTY_ANSWER", "Empty agent answer");
                 this.validateCalls(turn.toolCalls, tools, new Set([...this.requestedIds, ...this.executedIds]));
+                this.event("agent.protocol.validated", { decisionTurn: this.decisionTurns, toolCalls: turn.toolCalls.length, toolsEnabled: tools.length > 0 });
                 turn.toolCalls.forEach(call => this.requestedIds.add(call.id));
                 return structuredClone(turn);
             } catch (error) {

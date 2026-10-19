@@ -47,7 +47,7 @@ export interface AgentResult {
     review?: { status: "passed" | "failed" | "uncertain" | "unavailable"; attempts: number; revised: boolean };
 }
 /** 显式委派给已注册子 agent 的任务，子任务不会自动继承父任务历史。 */
-export interface AgentTask { agent: string; input: string; context?: AgentMessage[]; }
+export interface AgentTask { agent: string; input: string; context?: AgentMessage[]; /** Optional trace label; grants no capabilities or budget. */ purpose?: string; }
 /** 子任务结果，在通用答案上补充任务 ID 和实际执行的 agent 名称。 */
 export interface AgentTaskResult extends AgentResult { taskId: string; agent: string; }
 /** 结果处理器可读取的当前问题和历史消息，用于核验和格式检查。 */

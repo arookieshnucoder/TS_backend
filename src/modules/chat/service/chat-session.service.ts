@@ -71,7 +71,7 @@ export class ChatSessionService {
             await this.repository.save(session);
             try {
                 runSignal.throwIfAborted();
-                const result = await this.harness.run(session, message, runSignal, trace ? { runId: trace.id, event: trace.event } : undefined);
+                const result = await this.harness.run(session, message, runSignal, trace ? { runId: trace.id, event: trace.event, workflow: snapshot => trace!.workflow(snapshot) } : undefined);
                 runSignal.throwIfAborted();
                 if (typeof result.content !== "string" || !result.content.trim()) throw new Error("Empty agent answer");
                 trace?.event("answer.ready", { content: result.content, modelTurns: result.modelTurns, toolCalls: result.toolCalls });

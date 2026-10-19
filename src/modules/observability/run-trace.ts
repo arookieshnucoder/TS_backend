@@ -4,19 +4,21 @@ import { generateId } from "../../utils/snowflake.js";
 import type { Logger } from "../../common/logging/logger.js";
 import { redact, environmentSecrets } from "../../common/logging/redaction.js";
 import { AppError } from "../../common/errors/app-error.js";
+import type { WorkflowSnapshot } from "../workflows/definition.js";
 
 export type RunStatus = "pending" | "success" | "failure" | "cancelled" | "timed_out" | "interrupted";
 /** 运行追踪中的一个有序事件，记录发生时间、相对耗时和结构化字段。 */
 export interface RunEvent { sequence: number; name: string; timestamp: string; elapsedMs: number; fields: Record<string, unknown>; }
 /** 一次回答的完整运行记录，关联会话、请求、消息及按顺序发生的事件。 */
 export interface RunTrace {
+    workflow?: WorkflowSnapshot & { runtime: Record<string, unknown> };
     id: string; sessionId: string; requestId: string; userMessageId: string; assistantMessageId?: string;
     question: string; status: RunStatus; startedAt: string; finishedAt?: string; durationMs?: number;
     events: RunEvent[]; droppedEvents: number;
 }
-export type RunSummary = Omit<RunTrace, "events"> & { eventCount: number };
+export type RunSummary = Omit<RunTrace, "events" | "workflow"> & { eventCount: number };
 const validId = (id: string) => /^[a-zA-Z0-9_-]{1,100}$/.test(id);
-const summary = ({ events, ...run }: RunTrace): RunSummary => ({ ...run, eventCount: events.length });
+const summary = ({ events, workflow: _workflow, ...run }: RunTrace): RunSummary => ({ ...run, eventCount: events.length });
 
 /** 记录当前运行事件并更新状态，落盘前统一脱敏并限制记录数量。 */
 export class RunRecorder {
@@ -27,6 +29,23 @@ export class RunRecorder {
         private readonly logger: Logger, private readonly secrets: string[], private readonly maxEvents: number) {}
     get id() { return this.run.id; }
     get finished() { return this.closed; }
+    async workflow(snapshot: WorkflowSnapshot & { runtime: Record<string, unknown> }): Promise<void> {
+        if (this.closed || this.run.workflow) return;
+        // Preview redaction truncates nested arrays/depth. A historical graph must retain
+        // its full structure, so redact only textual leaves and preserve structural IDs.
+        const safe = structuredClone(snapshot);
+        const safeText = (value: string) => redact(value, this.secrets, { maxStringLength: 50000, maxCharacters: 50000 }) as string;
+        safe.title = safeText(safe.title); safe.description = safeText(safe.description);
+        for (const node of safe.graph.nodes) {
+            for (const field of ["label", "description", "inputs", "outputs"] as const) node.data[field] = safeText(node.data[field]);
+            node.data.config = Object.fromEntries(Object.entries(node.data.config).map(([key, value]) => [key, safeText(value)]));
+            for (const binding of node.data.bindings) if (binding.value !== undefined) binding.value = safeText(binding.value);
+        }
+        for (const edge of safe.graph.edges) edge.label = safeText(edge.label);
+        safe.runtime = redact(safe.runtime, this.secrets, { maxStringLength: 50000, maxCharacters: 100000 }) as Record<string, unknown>;
+        this.run.workflow = safe;
+        this.schedule(); await this.queue;
+    }
     readonly event = (name: string, fields: Record<string, unknown> = {}): void => {
         if (this.closed) return;
         if (this.run.events.length >= this.maxEvents - 1) { this.run.droppedEvents++; return; }

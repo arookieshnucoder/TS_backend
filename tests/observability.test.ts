@@ -16,6 +16,7 @@ import { AgentHarness } from "../src/modules/harness/agent-harness.js";
 import { AskAgent } from "../src/modules/agent/ask-agent.js";
 import { loadConfig } from "../src/config/env.js";
 import { createApp } from "../src/app.js";
+import { TestAuthStore } from "./auth-fixtures.js";
 
 const logger = { info() {}, error() {} };
 const config = loadConfig({ NODE_ENV: "test", AGENT_WORKSPACE_ENABLED: "false" });
@@ -162,11 +163,12 @@ test("production APIs require a session even behind a loopback proxy; health rem
 test("observability HTTP requires administrator access, provides summaries/details and supports disabling", async () => {
     const { runs } = await store();
     const recorder = (await runs.start({ sessionId: "s", requestId: "r", userMessageId: "q", question: "q" }))!; await runs.finish(recorder, "success");
-    const cfg = { ...config, mcp: { configFile: "unused", adminToken: "admin-token", timeoutMs: 1000 } };
-    const deps = createDependencies({ runs, logger, agentHarness: { async run() { return { content: "answer" }; }, async titleFor(s) { return s.title; } } }, cfg);
+    const cfg = { ...config, auth: { ...config.auth, enabled: true }, mcp: { configFile: "unused", adminToken: "admin-token", timeoutMs: 1000 } };
+    const deps = createDependencies({ runs, logger, authStore: new TestAuthStore(), agentHarness: { async run() { return { content: "answer" }; }, async titleFor(s) { return s.title; } } }, cfg);
+    const admin = await deps.auth!.register({ username: "trace-admin@example.com", password: "trace password" });
     const server = createApp(cfg, deps).listen(0, "127.0.0.1"); await once(server, "listening");
     const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/observability/sessions/s/runs`;
-    const headers = { Authorization: "Bearer admin-token" };
+    const headers = { Cookie: `songjian_sso=${admin.token}` };
     try {
         assert.equal((await fetch(base)).status, 401);
         const list = await (await fetch(base, { headers })).json() as any; assert.equal(list.data.runs[0].eventCount, 2); assert.equal(list.data.runs[0].events, undefined);
@@ -174,5 +176,5 @@ test("observability HTTP requires administrator access, provides summaries/detai
         assert.equal((await fetch(`${base}?limit=999`, { headers })).status, 400);
         assert.equal((await fetch(`${base}/missing`, { headers })).status, 404);
         assert.equal(loadConfig({ AGENT_TRACE_ENABLED: "false" }).observability?.enabled, false);
-    } finally { await deps.mcp.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+    } finally { await deps.mcp.close(); await deps.workflows?.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });

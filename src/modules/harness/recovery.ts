@@ -68,7 +68,7 @@ export class RecoveringModel implements AgentModel {
     private readonly models: NamedAgentModel[];
     constructor(primary: AgentModel, fallbacks: NamedAgentModel[], private readonly policy: RecoveryPolicy, private readonly event: Event) {
         // AgentHarness resolves and validates this chain before starting a run.
-        this.models = [{ name: "primary", model: primary }, ...fallbacks];
+        this.models = [{ name: primary.modelId ?? "primary", model: primary }, ...fallbacks];
     }
     async turn(messages: AgentMessage[], tools: ToolDefinition[], signal?: AbortSignal, maxOutputTokens?: number) {
         const modelCallId = `model-${++this.sequence}`;
