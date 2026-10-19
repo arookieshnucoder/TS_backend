@@ -12,9 +12,10 @@ import { evaluateRetrieval, validateRetrievalCases } from "../src/modules/evalua
 import { readSkillExports, readonlySkillStore, validateSkillCatalog } from "../src/modules/evaluation/skill-retrieval-catalog.js";
 
 const usage = `npm run eval:rag -- [--source snapshot|files|postgres] [--embedding lexical|live] [--matching ranked|semantic] [--concurrency 1..4]
-  [--catalog benchmarks/rag/skills-catalog.json] [--skills-dir data/solution-skills]
-  [--queries benchmarks/rag/skills-queries.json] [--out data/evaluations/rag-<new>]
-Defaults: frozen four-method snapshot, lexical fallback, no API requests or database writes.
+  --queries <judgments.json> [--catalog <catalog.json>] [--skills-dir data/solution-skills]
+  [--out data/evaluations/rag-<new>]
+Defaults: current exported skills, lexical matching, no API requests or database writes.
+Judgments must be supplied explicitly; snapshot additionally requires --catalog.
 postgres uses a read-only transaction; live uses the configured skill embedding endpoint.`;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const percentage = (value: number | null | undefined) => value == null ? "N/A" : `${(value * 100).toFixed(2)}%`;
@@ -27,17 +28,21 @@ async function main() {
         if (!args[i]?.startsWith("--") || !key || !["source", "embedding", "matching", "concurrency", "catalog", "skills-dir", "queries", "out"].includes(key) || !value || value.startsWith("--") || options.has(key)) throw new Error("Invalid CLI options");
         options.set(key, value);
     }
-    const source = options.get("source") ?? "snapshot", embeddingMode = options.get("embedding") ?? "lexical";
+    const source = options.get("source") ?? "files", embeddingMode = options.get("embedding") ?? "lexical";
     const matching = options.get("matching") ?? "ranked";
     const concurrency = Number(options.get("concurrency") ?? 1);
     if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 4) throw new Error("Invalid concurrency");
     if (!["snapshot", "files", "postgres"].includes(source) || !["lexical", "live"].includes(embeddingMode) || !["ranked", "semantic"].includes(matching)) throw new Error("Invalid evaluation mode");
+    if (!options.has("queries") || source === "snapshot" && !options.has("catalog")) {
+        console.error(`评测须显式传入 --queries；snapshot 模式还须传入 --catalog。\n${usage}`);
+        process.exitCode = 1; return;
+    }
     if (embeddingMode === "live" && source === "files") throw new Error("Export files lack embeddings; use a complete snapshot or postgres for live evaluation");
     const config = source === "postgres" || embeddingMode === "live" || matching === "semantic" ? loadConfig() : undefined;
     const catalog = await (async () => {
         if (source === "files") return readSkillExports(resolve(options.get("skills-dir") ?? "data/solution-skills"));
-        if (source === "snapshot") return validateSkillCatalog(JSON.parse(await readFile(resolve(options.get("catalog") ?? "benchmarks/rag/skills-catalog.json"), "utf8")));
-        // Do not use PostgresSkillStore.list(): it initializes tables and indexes on first access.
+        if (source === "snapshot") return validateSkillCatalog(JSON.parse(await readFile(resolve(options.get("catalog")!), "utf8")));
+        // 不调用会初始化表和索引的存储适配器，评测读取严格保持只读。
         const pool = new Pool({ connectionString: config!.skills.databaseUrl, connectionTimeoutMillis: 5000, statement_timeout: 15000 });
         try {
             const client = await pool.connect();
@@ -49,7 +54,7 @@ async function main() {
             } finally { client.release(); }
         } finally { await pool.end(); }
     })();
-    const judgmentText = await readFile(resolve(options.get("queries") ?? "benchmarks/rag/skills-queries.json"), "utf8");
+    const judgmentText = await readFile(resolve(options.get("queries")!), "utf8");
     const judgments = JSON.parse(judgmentText);
     if (judgments.version !== 1 || typeof judgments.scope !== "string" || !judgments.scope.trim()) throw new Error("Invalid judgment dataset");
     const contentHash = hash(JSON.stringify([...catalog].sort((a, b) => a.id.localeCompare(b.id)).map(({ id, subject, markdown }) => ({ id, subject, markdown }))));

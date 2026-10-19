@@ -1,10 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { scoreRetrieval, evaluateRetrieval, validateRetrievalCases } from "../src/modules/evaluation/retrieval-metrics.js";
-import { parseSkillExport, readonlySkillStore } from "../src/modules/evaluation/skill-retrieval-catalog.js";
-import { readFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
-import { validateSkillCatalog } from "../src/modules/evaluation/skill-retrieval-catalog.js";
+import { parseSkillExport, readonlySkillStore, validateSkillCatalog } from "../src/modules/evaluation/skill-retrieval-catalog.js";
+import { renderSkill } from "../src/modules/harness/skills/document.js";
 
 test("Recall and Hit use different denominators; duplicates consume ranks", () => {
     const result = scoreRetrieval(["a", "a", "wrong", "b"], ["a", "b", "c", "d"], 3);
@@ -44,16 +42,24 @@ test("Export parser fails closed and evaluation store disallows learning", async
     await assert.rejects(readonlySkillStore([]).withSubjectLock("math", async () => undefined));
 });
 
-test("Frozen catalog round-trips exported methods and its labels match exactly that catalog", async () => {
-    const catalog = validateSkillCatalog(JSON.parse(await readFile(new URL("../benchmarks/rag/skills-catalog.json", import.meta.url), "utf8")));
+test("当前经验导出保留版本与子经验引用，评测存储隔离外部修改", async () => {
+    // 单测只构造当前协议需要的最小经验，不依赖本地评测目录或真实题库。
+    const child = parseSkillExport(renderSkill({ id: "00000000-0000-4000-8000-000000000001", subject: "math",
+        name: "linear-equation-solving", description: "通过移项与合并同类项求解一元一次方程，并将所得解代回原方程检验。",
+        applicability: ["一元一次方程，未知数系数非零"], steps: ["移项并合并同类项", "除以未知数系数后代回检验"],
+        checks: ["代回原方程等式成立"], exclusions: ["未知数系数为零时需先讨论退化情况"], keywords: ["一次方程", "移项"] }));
+    const parent = parseSkillExport(renderSkill({ ...child, id: "00000000-0000-4000-8000-000000000002",
+        name: "linear-equation-workflow", revision: 2, componentIds: [child.id] }));
+    const catalog = validateSkillCatalog([child, parent]);
     for (const skill of catalog) assert.deepEqual(parseSkillExport(skill.markdown), skill);
-    const judgments = JSON.parse(await readFile(new URL("../benchmarks/rag/skills-queries.json", import.meta.url), "utf8"));
-    const content = JSON.stringify([...catalog].sort((a, b) => a.id.localeCompare(b.id)).map(({ id, subject, markdown }) => ({ id, subject, markdown })));
-    assert.equal(judgments.catalogContentHash, createHash("sha256").update(content).digest("hex"));
-    validateRetrievalCases(judgments.cases, new Map(catalog.map(s => [s.id, s.subject])));
-    const store = readonlySkillStore(catalog), first = catalog[0]!;
-    const copy = await store.list(first.subject); copy[0]!.description = "changed";
-    assert.equal((await store.list(first.subject))[0]!.description, first.description);
+    assert.equal(parent.revision, 2); assert.deepEqual(parent.componentIds, [child.id]);
+    assert.throws(() => validateSkillCatalog([parent]), /COMPONENT_REFERENCE/);
+    assert.throws(() => validateSkillCatalog([child, child]), /Duplicate catalog ID/);
+    validateRetrievalCases([{ id: "one", subject: "math", category: "test", query: "解一元一次方程", relevantIds: [child.id] }],
+        new Map(catalog.map(skill => [skill.id, skill.subject])));
+    const store = readonlySkillStore(catalog), copy = await store.list("math");
+    copy[0]!.description = "changed"; copy[0]!.steps.push("changed"); copy[1]!.componentIds!.push(child.id);
+    assert.deepEqual(await store.list("math"), catalog); assert.deepEqual(await store.list("english"), []);
 });
 
 test("组合经验的ID召回与实际子经验覆盖分别计分", () => {
