@@ -2,11 +2,6 @@ name: Release full stack
 on:
   workflow_dispatch:
     inputs:
-      frontend_ref:
-        description: Frontend branch, tag or commit SHA (must contain its Dockerfile)
-        required: true
-        default: feature/inifront
-        type: string
       deploy_windows:
         description: Deploy the tested images to the configured Windows runner
         default: false
@@ -39,7 +34,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: ${{ vars.FRONTEND_REPOSITORY || 'arookieshnucoder/TS_frontend' }}
-          ref: ${{ inputs.frontend_ref }}
+          # 跨仓库未指定ref时，自动读取前端默认分支的最新提交。
           token: ${{ secrets.SOURCE_READ_TOKEN || github.token }}
           path: frontend
           clean: false
