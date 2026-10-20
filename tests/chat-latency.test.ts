@@ -7,12 +7,13 @@ import { BackgroundWorkQueue, type BackgroundWork } from "../src/modules/chat/se
 import { ChatSessionService } from "../src/modules/chat/service/chat-session.service.js";
 import { InMemoryChatSessionRepository } from "../src/infrastructure/persistence/memory/in-memory-chat-session.repository.js";
 import { RunTraceStore } from "../src/modules/observability/run-trace.js";
-import { elementaryArithmetic } from "../src/modules/math/fast-path.js";
+import { elementaryArithmetic, elementaryEquation } from "../src/modules/math/fast-path.js";
 import { createMathChatAgent } from "../src/bootstrap/math-chat-agent.js";
 import { loadConfig } from "../src/config/env.js";
 import { SolutionSkillLibrary } from "../src/modules/harness/skills/library.js";
 import { withSolutionSkills } from "../src/bootstrap/solution-skills.js";
 import type { AgentModel } from "../src/modules/agent/model.js";
+import type { AgentResult } from "../src/modules/agent/contracts.js";
 import type { SolutionSkill, SolutionSkillStore } from "../src/modules/harness/skills/contracts.js";
 import { abortable } from "../src/modules/harness/cancellation.js";
 import { AgentHarness } from "../src/modules/harness/agent-harness.js";
@@ -52,6 +53,52 @@ test("arithmetic calls the solver once, executes a real calculation and still re
     assert.equal(answer.sessionStatus, "finished");
     assert.match(answer.messages.at(-1)!.content, /答案：95/);
     assert.equal(solverCalls, 1); assert.equal(reviewCalls, 1);
+});
+
+test("literal equations use the short route only with a nonzero coefficient and an exact integer root", () => {
+    for (const [question, value] of [["[数学] 解方程 3x+7=22，并验算。", 5], ["解方程 -4x-9=19", -7],
+        ["请解一元一次方程 -x+8=-3。", 11], ["解方程 2 * x = -14", -7], ["解方程 x=0", 0],
+        ["[数学] 解方程 2x+3=11，写出计算步骤。", 4], ["解方程 3x+7=22，写出解题步骤并验算。", 5]] as const)
+        assert.equal(elementaryEquation(question)?.value, value, question);
+    for (const question of ["解方程 0x+3=3", "解方程 0x+3=4", "解方程 2x+1=4", "解方程 0.1x=3",
+        "解方程 x²+3x=4", "解方程 3x+7=22，且x<0", "解方程 3x+7=22，证明x=9", "解方程 3x+7=22\n再解x=4",
+        "把刚才方程的11改成15", "解方程 2y+3=11", "解方程 9999999x=9999999", "解方程 x/0=1"])
+        assert.equal(elementaryEquation(question), undefined, question);
+});
+
+test("elementary equations keep history, calculate first and receive independent review; corrections use the full agent", async () => {
+    const config = loadConfig({ NODE_ENV: "test", MATH_AGENT_VARIANT: "adaptive", ANSWER_REVIEW_ENABLED: "true" });
+    let solves = 0, reviews = 0;
+    const routes: string[] = [];
+    const solver: AgentModel = { async turn(messages, tools) {
+        solves++;
+        if (solves === 1) {
+            assert.equal(tools.length, 0);
+            assert.ok(messages.some(message => message.role === "tool" && JSON.parse(message.content).value === 4));
+            return { content: "2x+3=11，x=4；代回2×4+3=11。\n答案：4", toolCalls: [] };
+        }
+        assert.ok(tools.some(tool => tool.name === "math_calculate"));
+        assert.ok(messages.some(message => message.content.includes("2x+3=11")));
+        assert.ok(messages.some(message => message.content.includes("11改成15")));
+        return { content: "2x+3=15，x=6；代回2×6+3=15。\n答案：6", toolCalls: [] };
+    } };
+    const reviewer: AgentModel = { async turn(messages) {
+        reviews++;
+        const payload = JSON.parse(messages.at(-1)!.content);
+        assert.match(payload.candidate, reviews === 1 ? /答案：4/ : /答案：6/);
+        return { content: JSON.stringify({ verdict: "pass", reason: "移项除以非零系数并代回等式，结果正确。", issues: [] }), toolCalls: [] };
+    } };
+    const agent = createMathChatAgent(solver, config, logger, config.harness, reviewer);
+    const service = new ChatSessionService(new InMemoryChatSessionRepository(), agent);
+    const session = await service.create("new", "request");
+    const first = await agent.run(session, { id: "first", role: "user", content: "[数学] 解方程 2x+3=11，并验算。" }, undefined,
+        { runId: "first", event(name, fields) { if (name === "math.fast_path") routes.push(String(fields?.reason)); } }) as AgentResult;
+    assert.equal(first.review?.status, "passed"); assert.equal(first.modelTurns, 2);
+    session.messages.push({ id: "u", role: "user", content: "[数学] 解方程 2x+3=11，并验算。" }, { id: "a", role: "assistant", content: first.content });
+    const second = await agent.run(session, { id: "correction", role: "user", content: "[数学] 把刚才方程右边的11改成15，再解并验算。" }, undefined,
+        { runId: "second", event(name) { assert.notEqual(name, "math.fast_path"); } }) as AgentResult;
+    assert.equal(second.review?.status, "passed"); assert.match(second.content, /答案：6/);
+    assert.deepEqual(routes, ["elementary_equation"]); assert.equal(solves, 2); assert.equal(reviews, 2);
 });
 
 test("reviewed HTTP-service answer is committed and next send proceeds while maintenance is blocked; trace finishes afterwards", { timeout: 5000 }, async () => {
@@ -162,7 +209,7 @@ test("deferred learning has a fresh live runtime after the request ends, remains
     const agent = createMathChatAgent(solver, config, logger, options, reviewer);
     const session = await new ChatSessionService(new InMemoryChatSessionRepository(), agent).create("new", "request");
     const deferred: BackgroundWork[] = [], requestSignal = new AbortController();
-    const result = await agent.run(session, { id: "u", role: "user", content: "解方程2x+3=11" }, requestSignal.signal,
+    const result = await agent.run(session, { id: "u", role: "user", content: "解方程2x+3=11，说明等式性质" }, requestSignal.signal,
         { runId: "run", event() {}, deferMaintenance: task => deferred.push(task) });
     assert.match(result.content, /答案：4/); assert.equal(authorCalls, 0); assert.equal(deferred.length, 1);
     requestSignal.abort();
