@@ -1,10 +1,11 @@
-import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { generateId } from "../../utils/snowflake.js";
 import type { Logger } from "../../common/logging/logger.js";
 import { redact, environmentSecrets } from "../../common/logging/redaction.js";
 import { AppError } from "../../common/errors/app-error.js";
 import type { WorkflowSnapshot } from "../workflows/definition.js";
+import { atomicWriteFile } from "../../common/persistence/atomic-write.js";
 
 export type RunStatus = "pending" | "success" | "failure" | "cancelled" | "timed_out" | "interrupted";
 /** 运行追踪中的一个有序事件，记录发生时间、相对耗时和结构化字段。 */
@@ -95,10 +96,7 @@ export class RunTraceStore {
     }
     private async save(run: RunTrace) {
         const destination = this.file(run.sessionId, run.id);
-        await mkdir(join(this.directory, run.sessionId), { recursive: true });
-        const temporary = `${destination}.${generateId()}.tmp`;
-        await writeFile(temporary, JSON.stringify(run), { mode: 0o600, flag: "wx" });
-        await rename(temporary, destination);
+        await atomicWriteFile(destination, JSON.stringify(run));
     }
     async start(input: { sessionId: string; requestId: string; userMessageId: string; question: string }): Promise<RunRecorder | undefined> {
         const run: RunTrace = { ...input, question: redact(input.question, this.secrets) as string, id: generateId(), status: "pending",

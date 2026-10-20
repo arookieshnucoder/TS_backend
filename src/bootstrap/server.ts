@@ -2,6 +2,7 @@ import { createApp } from "../app.js";
 import { loadConfig } from "../config/env.js";
 import { logger } from "../common/logging/logger.js";
 import { createDependencies } from "./container.js";
+import { closeApplicationResources } from "./lifecycle.js";
 
 // 执行服务器启动逻辑
 export async function startServer() {
@@ -10,9 +11,7 @@ export async function startServer() {
     try { await dependencies.auth?.initialize(); await dependencies.solutionSkills?.store.initialize(); await dependencies.workflows?.initialize(); }
     catch {
         logger.error("server.auth_database_unavailable");
-        await dependencies.auth?.store.close();
-        await dependencies.solutionSkills?.store.close();
-        await dependencies.workflows?.close();
+        await closeApplicationResources(dependencies);
         process.exitCode = 1;
         return;
     }
@@ -23,9 +22,14 @@ export async function startServer() {
     server.on("error", (error: NodeJS.ErrnoException) => {
         logger.error("server.start_failed", { code: error.code ?? "UNKNOWN" });
         process.exitCode = 1;
-        void Promise.allSettled([dependencies.mcp.close(), dependencies.auth?.store.close(), dependencies.solutionSkills?.store.close(), dependencies.workflows?.close()]);
+        process.off("SIGINT", onInterrupt);
+        process.off("SIGTERM", onTerminate);
+        void closeResources();
     });
 
+    // Startup errors and shutdown signals can race; every resource is closed once.
+    let cleanup: ReturnType<typeof closeApplicationResources> | undefined;
+    const closeResources = () => cleanup ??= closeApplicationResources(dependencies, app.locals.chatBackground);
     let closing = false;
     function shutdown(signal: string) {
         if (closing) return;
@@ -38,8 +42,7 @@ export async function startServer() {
         }, config.shutdownTimeoutMs);
         timeout.unref();
         server.close(async (error) => {
-            await app.locals.chatBackground.close();
-            const results = await Promise.allSettled([dependencies.mcp.close(), dependencies.auth?.store.close(), dependencies.solutionSkills?.store.close(), dependencies.workflows?.close()]);
+            const results = await closeResources();
             clearTimeout(timeout);
             process.off("SIGINT", onInterrupt);
             process.off("SIGTERM", onTerminate);

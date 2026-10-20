@@ -1,6 +1,6 @@
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { generateId } from "../../../utils/snowflake.js";
+import { atomicWriteFile } from "../../../common/persistence/atomic-write.js";
 import { isSessionStatus } from "../../../modules/chat/domain/session-status.js";
 import type { ChatSession } from "../../../modules/chat/entity/chat-session.entity.js";
 import type { ChatSessionRepository } from "../../../modules/chat/repository/chat-session.repository.js";
@@ -11,15 +11,8 @@ export class JsonChatSessionRepository implements ChatSessionRepository {
     constructor(private readonly directory: string) { }
     async save(session: ChatSession): Promise<void> {
         if (!/^[a-zA-Z0-9-]+$/.test(session.requestId)) throw new Error("Invalid request ID");
-        await mkdir(this.directory, { recursive: true });
         const destination = join(this.directory, `${session.requestId}_${session.createdAt.getTime()}.json`);
-        const temporary = `${destination}.${generateId()}.tmp`;
-        try {
-            await writeFile(temporary, JSON.stringify(session, null, 2), { encoding: "utf8", flag: "wx", mode: 0o600 });
-            await rename(temporary, destination);
-        } finally {
-            await rm(temporary, { force: true });
-        }
+        await atomicWriteFile(destination, JSON.stringify(session, null, 2));
     }
     async findById(id: string): Promise<ChatSession | null> {
         return (await this.findAll()).find(session => session.id === id) ?? null;
@@ -27,7 +20,7 @@ export class JsonChatSessionRepository implements ChatSessionRepository {
     async findAll(): Promise<ChatSession[]> {
         await mkdir(this.directory, { recursive: true });
         const names = (await readdir(this.directory)).filter(name => name.endsWith(".json"));
-        const sessions = await Promise.all(names.map(async name => {
+        const readSession = async (name: string): Promise<ChatSession> => {
             const value = JSON.parse(await readFile(join(this.directory, name), "utf8"));
             if (!value || typeof value.id !== "string" || typeof value.requestId !== "string"
                 || typeof value.title !== "string" || !Array.isArray(value.messages)
@@ -44,7 +37,13 @@ export class JsonChatSessionRepository implements ChatSessionRepository {
                 throw new Error("Invalid session error");
             }
             return { ...value, createdAt: new Date(value.createdAt), updatedAt: new Date(value.updatedAt) } as ChatSession;
-        }));
+        };
+        const sessions: ChatSession[] = [];
+        // Bound open files and transient JSON buffers as the history grows.
+        // Invalid records still reject the read, preserving the existing contract.
+        for (let offset = 0; offset < names.length; offset += 16) {
+            sessions.push(...await Promise.all(names.slice(offset, offset + 16).map(readSession)));
+        }
         return sessions.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
     }
 }

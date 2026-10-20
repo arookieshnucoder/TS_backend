@@ -5,7 +5,7 @@ import { loadConfig } from "../../config/env.js";
 import type { AgentModel } from "../agent/model.js";
 import type { EvalEvent, EvalReport, Trial } from "./contracts.js";
 import { sourceHash, digest } from "./runner.js";
-import { summarize, compare, percentile, rate } from "./statistics.js";
+import { summarize, compare, percentile } from "./statistics.js";
 import { writeReport } from "./report.js";
 import { GlmModel, GlmEmbeddings } from "../../infrastructure/llm/glm-model.js";
 import { loadCorpus, hash } from "../math/corpus.js";

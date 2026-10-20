@@ -77,9 +77,9 @@ export class ChatSessionService {
             try {
                 runSignal.throwIfAborted();
                 const maintenance: BackgroundWork[] = [];
-                const result = await this.harness.run(session, message, runSignal, { runId: trace?.id ?? requestId,
+                const result = await abortable(() => this.harness.run(session, message, runSignal, { runId: trace?.id ?? requestId,
                     event: trace?.event ?? (() => {}), ...(trace ? { workflow: snapshot => trace!.workflow(snapshot) } : {}),
-                    deferMaintenance: work => maintenance.push(work) });
+                    deferMaintenance: work => maintenance.push(work) }), runSignal);
                 runSignal.throwIfAborted();
                 if (typeof result.content !== "string" || !result.content.trim()) throw new Error("Empty agent answer");
                 trace?.event("answer.ready", { content: result.content, modelTurns: result.modelTurns, toolCalls: result.toolCalls });

@@ -1,6 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
-import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -14,6 +12,7 @@ import { abortable } from "../harness/cancellation.js";
 import { ToolAccessError, type RegisteredTool } from "../harness/tool-contracts.js";
 import { parseImport, parseServer, resolveValues, type McpServerConfig } from "./mcp-config.js";
 import { adaptMcpTool } from "./mcp-tools.js";
+import { atomicWriteFile } from "../../common/persistence/atomic-write.js";
 
 /** 提供给管理界面的 MCP 服务状态和工具列表，不暴露连接凭据。 */
 export interface McpServerView {
@@ -67,10 +66,7 @@ export class McpManager {
         return next;
     }
     private async save(configs: McpServerConfig[]) {
-        await mkdir(dirname(this.file), { recursive: true });
-        const temporary = `${this.file}.${randomUUID()}.tmp`;
-        await writeFile(temporary, JSON.stringify(configs, null, 2), { flag: "wx", mode: 0o600 });
-        await rename(temporary, this.file);
+        await atomicWriteFile(this.file, JSON.stringify(configs, null, 2));
         this.configs = configs;
     }
     private view(config: McpServerConfig): McpServerView {
