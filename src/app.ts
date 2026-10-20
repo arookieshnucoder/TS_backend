@@ -14,6 +14,7 @@ import { readingRouter } from "./modules/reading/reading.module.js";
 import { englishRouter } from "./modules/english/english.module.js";
 import { authWriteAccess, createAuthModule, requireAdmin, requireAuth } from "./modules/auth/auth.module.js";
 import { workflowModule } from "./modules/workflows/workflow.module.js";
+import { BackgroundWorkQueue } from "./modules/chat/service/background-work.js";
 
 export function createApp(
     config: AppConfig = loadConfig(),
@@ -23,8 +24,10 @@ export function createApp(
     // header 不带 x-powered-by
     app.disable("x-powered-by");
     app.use(requestContext(dependencies.logger));
+    const background = new BackgroundWorkQueue();
+    app.locals.chatBackground = background;
     const chatService = new ChatSessionService(dependencies.chatSessionRepository, dependencies.agentHarness, dependencies.errors,
-        config.llmTimeoutMs, dependencies.runs);
+        config.llmTimeoutMs, dependencies.runs, background);
     app.use(cors({ origin: config.frontendOrigin, credentials: true, exposedHeaders: ["X-Request-Id"] }));
     app.use(express.json({ limit: "1mb" }));
     app.use("/api/health", createHealthModule());

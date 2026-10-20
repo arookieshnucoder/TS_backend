@@ -19,20 +19,31 @@ export class AnswerReview implements AgentResultProcessor {
         if (!Number.isInteger(maxRevisions) || maxRevisions < 0 || maxRevisions > 2) throw new TypeError("Invalid review revision limit");
     }
     async process(result: AgentResult, runtime: AgentRuntime, context: AgentResultContext, signal?: AbortSignal): Promise<AgentResult> {
-        let candidate = result.content, attempts = 0, revised = false;
+        let candidate = result.content, attempts = 0, revised = false, protocolRepairs = 0;
         const finish = (status: NonNullable<AgentResult["review"]>["status"], content: string) => {
             runtime.event("agent.review.completed", { status, attempts, revised });
             return { ...result, content, review: { status, attempts, revised } };
         };
         try {
             const evidence = this.evidence(context);
-            runtime.event("agent.review.loop.started", { maxRevisions: this.maxRevisions, maxAttempts: this.maxRevisions + 1 });
+            runtime.event("agent.review.loop.started", { maxRevisions: this.maxRevisions, maxAttempts: this.maxRevisions + 2, maxProtocolRepairs: 1 });
             for (let revision = 0; ; revision++) {
                 signal?.throwIfAborted();
                 attempts++;
                 runtime.event("agent.review.started", { attempt: attempts });
-                const review = await runtime.delegate({ agent: this.reviewer, input: JSON.stringify({ evidence, candidate }) }, signal);
-                const report = parseReviewReport(review.content);
+                let review = await runtime.delegate({ agent: this.reviewer, input: JSON.stringify({ evidence, candidate }) }, signal);
+                let report: ReviewReport;
+                try { report = parseReviewReport(review.content); }
+                catch (error) {
+                    if (!(error instanceof Error) || error.message !== "INVALID_REVIEW_REPORT" || protocolRepairs >= 1) throw error;
+                    protocolRepairs++;
+                    signal?.throwIfAborted();
+                    runtime.event("agent.review.protocol_repair", { attempt: attempts, maxRepairs: 1 });
+                    attempts++;
+                    review = await runtime.delegate({ agent: this.reviewer, input: JSON.stringify({ evidence, candidate,
+                        protocolCorrection: "上次报告格式不合法。重新独立核验相同candidate，只输出JSON对象，verdict只能是pass/fail/uncertain之一，reason是非空字符串，issues是字符串数组。pass必须issues为空，fail必须列出确定错误。不要输出Markdown或额外文字。" }) }, signal);
+                    report = parseReviewReport(review.content);
+                }
                 runtime.event("agent.review.report", { attempt: attempts, verdict: report.verdict, reason: report.reason, issues: report.issues });
                 const canRevise = report.verdict === "fail" && revision < this.maxRevisions;
                 runtime.event("agent.review.decision", { attempt: attempts, verdict: report.verdict, canRevise, remainingRevisions: Math.max(0, this.maxRevisions - revision) });

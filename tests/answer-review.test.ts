@@ -151,6 +151,23 @@ test("configured GLM models remain separate on the real HTTP adapter and feedbac
         assert.equal(result.content, "corrected"); assert.equal(result.review?.status, "passed");
         assert.deepEqual(bodies.map(body => body.model), ["glm-4.5-air", "glm-4.7", "glm-4.5-air", "glm-4.7"]);
         assert.ok(bodies.every(body => !body.tools));
+        assert.ok(bodies.filter(body => body.model === "glm-4.7").every(body => body.response_format?.type === "json_object"));
+        assert.ok(bodies.filter(body => body.model === "glm-4.5-air").every(body => !body.response_format));
         assert.doesNotMatch(JSON.stringify(result), /test-main-key/);
     } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+test("malformed review gets one protocol correction without rerunning the solver or changing the candidate", async () => {
+    let solves = 0, reviews = 0;
+    const result = await run({ async turn() { solves++; return { content: "verified candidate", toolCalls: [] }; } }, {
+        async turn(messages) {
+            const payload = JSON.parse(messages.at(-1)!.content);
+            assert.equal(payload.candidate, "verified candidate");
+            if (++reviews === 1) return { content: "malformed", toolCalls: [] };
+            assert.match(payload.protocolCorrection, /pass\/fail\/uncertain/);
+            return { content: report("pass"), toolCalls: [] };
+        },
+    });
+    assert.equal(solves, 1); assert.equal(reviews, 2);
+    assert.equal(result.review?.status, "passed"); assert.equal(result.content, "verified candidate");
 });

@@ -29,7 +29,7 @@ export class HarnessChatAgent implements ChatAgent {
                     });
                     return tools;
                 }, metadata: { sessionId: snapshot.id, requestId: snapshot.modelRequestId,
-                    messageId: current.id, ...(context ? { runId: context.runId } : {}) }, onEvent: context?.event
+                    messageId: current.id, ...(context ? { runId: context.runId } : {}) }, onEvent: context?.event, deferMaintenance: context?.deferMaintenance
             }, signal);
         }, signal);
     }

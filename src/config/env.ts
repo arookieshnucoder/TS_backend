@@ -22,7 +22,7 @@ import { loadAuthConfig, type AuthConfig } from "../modules/auth/config.js";
 export interface AppConfig {
     skills: { enabled: boolean; directory: string; databaseUrl?: string; embeddingBaseUrl: string; embeddingApiKey?: string };
     auth: AuthConfig;
-    verification: { enabled: boolean; model: string; baseUrl: string; apiKey?: string; timeoutMs: number; maxRevisions: number };
+    verification: { enabled: boolean; model: string; baseUrl: string; apiKey?: string; timeoutMs: number; maxRevisions: number; thinking: "enabled" | "disabled" };
     schoolSubject: SchoolSubject | "auto";
     english: { variant: EnglishVariant; corpusPath: string; contextTokens: number; workflow: "direct" | "grounded"; thinking: "enabled" | "disabled" };
     reading: { variant: ReadingVariant; corpusPath: string; contextTokens: number };
@@ -111,11 +111,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
         throw new Error("Invalid SOLUTION_SKILLS_EMBEDDING_BASE_URL");
     const reviewEnabled = env.ANSWER_REVIEW_ENABLED ?? (nodeEnv !== "test" && /^glm-/i.test(llmModel) ? "true" : "false");
     const reviewModel = env.ANSWER_REVIEW_MODEL ?? "glm-4.7";
+    const reviewThinking = env.ANSWER_REVIEW_THINKING ?? "enabled";
     const reviewBaseUrl = env.ANSWER_REVIEW_BASE_URL ?? "https://open.bigmodel.cn/api/paas/v4";
     const reviewTimeoutMs = Number(env.ANSWER_REVIEW_TIMEOUT_MS ?? "120000");
     const maxRevisions = Number(env.ANSWER_REVIEW_MAX_REVISIONS ?? "1");
     const reviewUrl = new URL(reviewBaseUrl);
-    if (!["true", "false"].includes(reviewEnabled) || !/^glm-[a-z0-9.-]+$/i.test(reviewModel) ||
+    if (!["true", "false"].includes(reviewEnabled) || !["enabled", "disabled"].includes(reviewThinking) || !/^glm-[a-z0-9.-]+$/i.test(reviewModel) ||
         !["http:", "https:"].includes(reviewUrl.protocol) || reviewUrl.username || reviewUrl.password || reviewUrl.search || reviewUrl.hash ||
         !Number.isInteger(reviewTimeoutMs) || reviewTimeoutMs < 1 || reviewTimeoutMs > 600000 ||
         !Number.isInteger(maxRevisions) || maxRevisions < 0 || maxRevisions > 2) throw new Error("Invalid answer review configuration");
@@ -143,7 +144,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
             directory: env.SOLUTION_SKILLS_DIR ?? fileURLToPath(new URL("../../data/solution-skills", import.meta.url)) },
         auth: loadAuthConfig(env),
         verification: { enabled: reviewEnabled === "true", model: reviewModel, baseUrl: reviewBaseUrl,
-            apiKey: env.ANSWER_REVIEW_API_KEY || env.LLM_API_KEY, timeoutMs: reviewTimeoutMs, maxRevisions },
+            apiKey: env.ANSWER_REVIEW_API_KEY || env.LLM_API_KEY, timeoutMs: reviewTimeoutMs, maxRevisions, thinking: reviewThinking as "enabled" | "disabled" },
         schoolSubject: schoolSubject as AppConfig["schoolSubject"],
         english: { variant: englishVariant as EnglishVariant, contextTokens: englishContextTokens, workflow: englishWorkflow as "direct" | "grounded", thinking: englishThinking as "enabled" | "disabled",
             corpusPath: env.ENGLISH_CORPUS_PATH ?? fileURLToPath(new URL("../../evals/english/corpus.json", import.meta.url)) },

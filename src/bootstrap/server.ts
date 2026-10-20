@@ -38,6 +38,7 @@ export async function startServer() {
         }, config.shutdownTimeoutMs);
         timeout.unref();
         server.close(async (error) => {
+            await app.locals.chatBackground.close();
             const results = await Promise.allSettled([dependencies.mcp.close(), dependencies.auth?.store.close(), dependencies.solutionSkills?.store.close(), dependencies.workflows?.close()]);
             clearTimeout(timeout);
             process.off("SIGINT", onInterrupt);

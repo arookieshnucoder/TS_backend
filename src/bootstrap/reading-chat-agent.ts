@@ -51,7 +51,7 @@ export function createReadingChatAgent(model: AgentModel, config: AppConfig, log
             const harness = new ReadingHarness(model, task, config.reading.variant, config.context, logger, config.reading.contextTokens, reviewedOptions);
             return harness.run({ history: history.map(({ role, content }) => ({ role, content })),
                 question: supplied ? readingQuestions(task) : current.content, tools: [],
-                metadata: { sessionId: session.id, messageId: current.id, runId: context?.runId, subject: "chinese" }, onEvent: context?.event }, signal);
+                metadata: { sessionId: session.id, messageId: current.id, runId: context?.runId, subject: "chinese" }, onEvent: context?.event, deferMaintenance: context?.deferMaintenance }, signal);
         },
         async titleFor(session) { return `语文阅读 · ${session.messages.find(message => message.role === "user")?.content.replace(/\s+/g, " ").slice(0, 22) ?? "新题"}`; },
     };

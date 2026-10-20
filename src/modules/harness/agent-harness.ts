@@ -19,6 +19,7 @@ import { SubAgentSession, type SubAgentDefinition, type SubAgentScope, type Dele
 import type { SolutionSkillLibrary } from "./skills/library.js";
 import { SKILL_AGENTS } from "./skills/contracts.js";
 import { parseSkillMatch, skillMatchInput } from "./skills/matching.js";
+import type { BackgroundWork } from "../chat/service/background-work.js";
 
 /** 运行时策略选项，集中控制工具上限、恢复、子任务和答案后处理。 */
 export interface HarnessOptions {
@@ -43,6 +44,7 @@ export interface HarnessToolContext { compression: TextCompressor; }
 export type HarnessToolFactory = (context: HarnessToolContext, signal?: AbortSignal) => Promise<RegisteredTool[]>;
 /** 一轮执行的输入，包含当前问题、历史、工具、预取调用及追踪元信息。 */
 export interface HarnessInput {
+    deferMaintenance?(work: BackgroundWork): void;
     /** Original evidence without reference answers, also used to audit learned methods. */
     evidence?: unknown;
     onEvent?(name: string, fields?: Record<string, unknown>): void;
@@ -112,14 +114,17 @@ export class AgentHarness implements HarnessRunner {
                 const compression = new ContextCompressor(model, this.tokens, this.config);
                 const supplied = typeof input.tools === "function" ? await input.tools({ compression }, signal) : input.tools;
                 signal?.throwIfAborted();
+                const explicitMaintenance = /(?:经验|方法库|skill|experience).*(?:新增|更新|修订|拆分|保存|维护|create|update|split|save|revise)|(?:新增|更新|修订|拆分|保存|维护|create|update|split|save|revise).*(?:经验|方法库|skill|experience)/i.test(input.question);
+                const interactiveLearning = !!input.deferMaintenance && !explicitMaintenance;
                 const skills = scope.depth === 0 ? this.options.skills?.open(String(metadata.subject ?? "general"), event,
                     session.definitions.has(SKILL_AGENTS.matcher) ? async (query, childSignal) => {
                         const matched = await runtime!.delegate({ agent: SKILL_AGENTS.matcher, input: skillMatchInput(query) }, childSignal);
                         return parseSkillMatch(matched.content);
-                    } : undefined) : undefined;
+                    } : undefined, !interactiveLearning) : undefined;
                 if (skills && supplied.some(tool => tool.definition.name === "solution_skills")) throw new TypeError("Reserved harness tool: solution_skills");
-                const { tools, history, prefetchHistory } = prepareRun(input, skills ? [...supplied, skills.tool()] : supplied, this.config, this.tokens, event);
-                const instructions = skills ? { ...this.instructions, system: this.instructions.system +
+                const { tools, history, prefetchHistory } = prepareRun(input, skills ? [...supplied, skills.tool(interactiveLearning)] : supplied, this.config, this.tokens, event);
+                const instructions = skills && interactiveLearning ? { ...this.instructions, system: this.instructions.system +
+                    "\nsolution_skills提供解题方法参考：search快速召回、match核对边界、load读取完整方法。必须检查当前条件是否适用，不把召回相似度当作正确性证明。完整解答本题；经验整理和审核在答案复核后由宿主处理，题解不输出经验维护内容。" } : skills ? { ...this.instructions, system: this.instructions.system +
                     "\n宿主已提供solution_skills解题经验工具：search/match检索并核对适用边界，load加载方法与子经验，history查看版本，propose新增草稿，update修订已有经验，split拆分综合经验。更新与拆分须提供skillId、当前expectedRevision和reason。update优先使用patch，只替换需要修改的草稿字段；列表按字段替换，须保留原有正确条目，无需重写其他字段。遇到同方法子题优先复用。本阶段先完整解答学科题目；用户的经验维护要求由宿主在答案复核通过后自动整理执行，可以不在解题阶段调用写操作。最终面向学习者只输出学科解答，不展示工具调用JSON、经验ID或维护草稿，维护结果由宿主运行轨迹记录。即使暂存变更，也必须输出全部题解，不能以工具JSON或工具标签代替答案。所有变更须独立审核，不能提前宣称已经发布。以本题原文为准。" } : this.instructions;
                 const builder = new ContextBuilder(history, input.question, this.config,
                     this.tokens, compression, event, instructions);
@@ -136,7 +141,7 @@ export class AgentHarness implements HarnessRunner {
                     scope.allowed.map(name => ({ name, description: session.definitions.get(name)!.description })),
                     (task, childSignal) => session.run(task, scope, childSignal, event, async (definition, request, childScope, operation) => {
                         const child = new AgentHarness(definition.model, definition.workflow, definition.instructions, definition.context ?? this.config,
-                            { info() {}, error() {} }, { ...this.options, fallbackModels: [], resultProcessors: [] });
+                            { info() {}, error() {} }, { ...this.options, recovery: this.recovery, fallbackModels: [], resultProcessors: [] });
                         return child.runScoped({ question: request.input, history: request.context ?? [], tools: definition.tools ?? [],
                             proactiveTools: false, metadata: { ...metadata, taskId: childScope.taskId, parentTaskId: scope.taskId ?? null, agent: definition.name },
                             onEvent: (name, fields) => name.startsWith("agent.subagent.") ? event(name, fields) :
@@ -168,9 +173,29 @@ export class AgentHarness implements HarnessRunner {
                     returned = await processor.process(returned, runtime, { question: input.question, history: input.history, evidence: input.evidence }, signal);
                 }
                 if (skills) {
-                    event("agent.skills.maintenance.started");
-                    await skills.finish(returned, runtime, { question: input.question, history: input.history, evidence: input.evidence }, signal);
-                    event("agent.skills.maintenance.completed");
+                    const resultContext = { question: input.question, history: input.history, evidence: input.evidence };
+                    // Explicit writes stay synchronous. Automatic learning uses a fresh runtime,
+                    // deadline and delegation budget; the completed request's signal is never reused.
+                    const explicit = skills.hasProposal() || explicitMaintenance;
+                    if (input.deferMaintenance && !explicit && returned.review?.status === "passed") {
+                        const verified = structuredClone(returned), evidence = structuredClone(resultContext);
+                        input.deferMaintenance(async backgroundSignal => {
+                            const maintenance = new AgentHarness(this.model, { run: async (freshRuntime, scope) => {
+                                event("agent.skills.maintenance.started", { background: true });
+                                await skills.finish(verified, freshRuntime, evidence, scope);
+                                event("agent.skills.maintenance.completed", { background: true });
+                                return { content: "maintenance completed", modelTurns: 0, toolCalls: 0 };
+                            } }, this.instructions, this.config, this.logger,
+                            { ...this.options, recovery: this.recovery, skills: undefined, resultProcessors: [] });
+                            await maintenance.run({ question: input.question, history: [], tools: [], proactiveTools: false,
+                                metadata: { ...metadata, phase: "maintenance" }, onEvent: input.onEvent }, backgroundSignal);
+                        });
+                        event("agent.skills.maintenance.deferred");
+                    } else {
+                        event("agent.skills.maintenance.started");
+                        await skills.finish(returned, runtime, resultContext, signal);
+                        event("agent.skills.maintenance.completed");
+                    }
                 }
                 signal?.throwIfAborted();
                 const result = { ...returned, modelTurns: runtime.modelInvocationCount, toolCalls: runtime.executedToolCount };

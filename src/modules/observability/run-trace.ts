@@ -13,7 +13,7 @@ export interface RunEvent { sequence: number; name: string; timestamp: string; e
 export interface RunTrace {
     workflow?: WorkflowSnapshot & { runtime: Record<string, unknown> };
     id: string; sessionId: string; requestId: string; userMessageId: string; assistantMessageId?: string;
-    question: string; status: RunStatus; startedAt: string; finishedAt?: string; durationMs?: number;
+    question: string; status: RunStatus; startedAt: string; finishedAt?: string; durationMs?: number; answerDurationMs?: number;
     events: RunEvent[]; droppedEvents: number;
 }
 export type RunSummary = Omit<RunTrace, "events" | "workflow"> & { eventCount: number };
@@ -48,6 +48,7 @@ export class RunRecorder {
     }
     readonly event = (name: string, fields: Record<string, unknown> = {}): void => {
         if (this.closed) return;
+        if (name === "answer.ready") this.run.answerDurationMs = Date.now() - Date.parse(this.run.startedAt);
         if (this.run.events.length >= this.maxEvents - 1) { this.run.droppedEvents++; return; }
         this.add(name, fields);
         this.schedule();

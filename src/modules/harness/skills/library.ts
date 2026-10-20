@@ -31,7 +31,7 @@ function parseRequest(value: Record<string, unknown>): Request {
 export class SolutionSkillLibrary {
     readonly files: SkillFiles;
     constructor(readonly store: SolutionSkillStore, directory: string, private readonly embeddings?: SkillEmbeddings) { this.files = new SkillFiles(directory); }
-    open(subject: string, event: Event, selector?: SkillSelector) { return new SkillRun(this, skillSubject(subject), event, selector); }
+    open(subject: string, event: Event, selector?: SkillSelector, semanticSearch = true) { return new SkillRun(this, skillSubject(subject), event, selector, semanticSearch); }
     async vector(text: string, signal?: AbortSignal) {
         if (!this.embeddings) return undefined;
         const [vector] = await this.embeddings.embed([text], signal);
@@ -66,10 +66,11 @@ export class SkillRun {
     private proposal?: SkillChange;
     private loadIds: string[] = [];
     private readonly loadedIds = new Set<string>();
-    constructor(private readonly library: SolutionSkillLibrary, private readonly subject: string, private readonly event: Event, private readonly selector?: SkillSelector) {}
+    constructor(private readonly library: SolutionSkillLibrary, private readonly subject: string, private readonly event: Event, private readonly selector?: SkillSelector, private readonly semanticSearch = true) {}
+    hasProposal() { return !!this.proposal; }
     initialLoads() { return [...this.loadIds]; }
-    tool(): RegisteredTool {
-        return { readonly: false, idempotent: false, source: { type: "custom" },
+    tool(readOnly = false): RegisteredTool {
+        const tool: RegisteredTool = { readonly: false, idempotent: false, source: { type: "custom" },
             definition: { name: "solution_skills", description: "解题经验库，学科由宿主锁定。search检索目录，match核对适用边界并排序，load读取完整方法及子经验，history查看历史版本；propose提出新方法，update优先用patch局部替换必要字段且保留其余内容（也支持draft完整修订，二者互斥），split将综合方法拆为2至4个子经验。写操作仅暂存，答案复核和变更审核通过后原子提交。包含关系优先复用，不把换数题另存。",
                 parameters: { type: "object", additionalProperties: false, required: ["action"],
                     allOf: [
@@ -89,6 +90,7 @@ export class SkillRun {
                 } } }, validate: input => { parseRequest(input); },
             execute: async (input, signal) => {
                 signal?.throwIfAborted(); const request = parseRequest(input);
+                if (readOnly && request.action === "change") throw new ToolInputError("Experience changes run after answer review");
                 if (request.action === "change") {
                     if (this.proposal) throw new ToolInputError("Only one skill proposal per run; reuse the existing proposal");
                     if (request.change.skillId) {
@@ -116,10 +118,11 @@ export class SkillRun {
                     }
                     if (request.action === "match" && !this.selector) throw new ToolInputError("Semantic skill matching is not configured");
                     if (!("query" in request)) throw new ToolInputError("A query is required for skill matching");
-                    const started = performance.now(), found = await this.library.search(this.subject, request.query, signal, this.selector);
-                    this.loadIds = found.matches.slice(0, this.selector ? 3 : 1).map(hit => hit.skill.id);
+                    const selector = request.action === "match" || this.semanticSearch ? this.selector : undefined;
+                    const started = performance.now(), found = await this.library.search(this.subject, request.query, signal, selector);
+                    this.loadIds = found.matches.slice(0, selector ? 3 : 1).map(hit => hit.skill.id);
                     this.event("agent.skills.search", { subject: this.subject, ids: found.matches.map(hit => hit.skill.id), candidateIds: found.candidateIds,
-                        scores: found.matches.map(hit => Number(hit.score.toFixed(4))), semantic: !!this.selector, durationMs: performance.now() - started });
+                        scores: found.matches.map(hit => Number(hit.score.toFixed(4))), semantic: !!selector, durationMs: performance.now() - started });
                     return JSON.stringify({ notice: "经验目录；load读取完整方法。没有适用经验时独立求解，复核后可新增或修订经验。",
                         methodHints: found.matches.map(({ skill }) => skill.description), matches: found.matches.map(({ skill, score }) => ({ id: skill.id, name: skill.name,
                             revision: skillRevision(skill), componentIds: skill.componentIds ?? [], question: skill.applicability.join("；"), topic: skill.subject,
@@ -130,6 +133,18 @@ export class SkillRun {
                     return JSON.stringify({ status: "unavailable", notice: "经验库访问失败，本轮须依据当前题目独立求解。", methodHints: [], matches: [] });
                 }
             } };
+        if (readOnly) {
+            tool.readonly = true; tool.idempotent = true;
+            tool.definition = { name: "solution_skills", description: "检索当前学科解题经验：search快速召回，match用模型核对适用边界，load读取完整方法和子经验，history读取版本。经验仅作参考，必须核对当前题条件；自动维护在答案复核后执行。",
+                parameters: { type: "object", additionalProperties: false, required: ["action"],
+                    properties: { action: { type: "string", enum: ["search", "match", "load", "history"] },
+                        query: { type: "string", minLength: 1, maxLength: 12000 }, skillId: { type: "string", pattern: skillIdPattern } },
+                    allOf: [
+                        { if: { properties: { action: { enum: ["search", "match"] } } }, then: { required: ["query"] } },
+                        { if: { properties: { action: { enum: ["load", "history"] } } }, then: { required: ["skillId"] } },
+                    ] } };
+        }
+        return tool;
     }
     private path(skill: SolutionSkill) { return { kind: "solution-skill", file: `${skill.subject}/${skill.id}/SKILL.md`, version: skillRevision(skill) }; }
     async finish(result: AgentResult, runtime: AgentRuntime, context: AgentResultContext, signal?: AbortSignal) {

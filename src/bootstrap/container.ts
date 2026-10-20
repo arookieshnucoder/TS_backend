@@ -85,15 +85,20 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
     let agentHarness = overrides.agentHarness;
     if (!agentHarness) {
         const model = overrides.agentModel ?? createModel(provider, config.math.thinking, errors);
-        const reviewer = config.verification.enabled ? overrides.reviewerModel ?? new GlmModel({
+        const reviewProvider = {
             llmApiKey: config.verification.apiKey, llmModel: config.verification.model,
             llmBaseUrl: config.verification.baseUrl, llmTimeoutMs: config.verification.timeoutMs,
-        }, config.math.thinking) : undefined;
+        };
+        const reviewer = config.verification.enabled ? overrides.reviewerModel ?? new GlmModel(reviewProvider,
+            config.verification.thinking, { jsonOutput: true }) : undefined;
+        // Learning may legitimately return JSON null; answer review always returns an object.
+        const skillReviewer = config.verification.enabled ? overrides.reviewerModel ?? new GlmModel(reviewProvider, config.verification.thinking) : undefined;
         const fallbackProvider = config.llmFallback ? { ...provider, llmModel: config.llmFallback.model, llmBaseUrl: config.llmFallback.baseUrl, llmApiKey: config.llmFallback.apiKey } : undefined;
         const fallbacks = (thinking: "enabled" | "disabled") => overrides.fallbackModels ??
             (overrides.agentModel === undefined && fallbackProvider ? [{ name: fallbackProvider.llmModel, model: createModel(fallbackProvider, thinking, errors) }] : []);
-        const harnessOptions = withSolutionSkills({ ...config.harness, fallbackModels: fallbacks(config.math.thinking) }, solutionSkills, model, reviewer);
-        const createBaseAgent = () => config.math.variant !== "general" ? createMathChatAgent(model, config, log, harnessOptions, reviewer) : createChatAgent(repository, model,
+        const harnessOptions = withSolutionSkills({ ...config.harness, fallbackModels: fallbacks(config.math.thinking) }, solutionSkills, model, skillReviewer);
+        const fastModel = overrides.agentModel ?? createModel(provider, "disabled", errors);
+        const createBaseAgent = () => config.math.variant !== "general" ? createMathChatAgent(model, config, log, harnessOptions, reviewer, fastModel) : createChatAgent(repository, model,
             () => config.context.elasticsearchUrl ? new ElasticsearchMemorySearch(new TokenBudget(config.context), config.context) :
                 new LocalMemorySearch(new TokenBudget(config.context)), config.context, log,
             { ...withAnswerReview(harnessOptions, model, reviewer, config, "math", mathReviewEvidence),
@@ -104,7 +109,7 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
             const reading = createReadingChatAgent(model, config, log, readingLibrary, harnessOptions, reviewer);
             const englishModel = overrides.agentModel ?? createModel(provider, config.english.thinking, errors);
             const english = createEnglishChatAgent(englishModel, config, log, englishLibrary,
-                withSolutionSkills({ ...config.harness, fallbackModels: fallbacks(config.english.thinking) }, solutionSkills, englishModel, reviewer), reviewer);
+                withSolutionSkills({ ...config.harness, fallbackModels: fallbacks(config.english.thinking) }, solutionSkills, englishModel, skillReviewer), reviewer);
             let base: ChatAgent | undefined;
             const select = (content: string, history: readonly { role: string; content: string }[]) => {
                 const subject = config.schoolSubject === "auto" ? routeSchoolSubject(content, history) : config.schoolSubject;

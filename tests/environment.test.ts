@@ -22,7 +22,7 @@ test("backend env file restores port/origin but never supplies credentials", asy
       "AGENT_MODEL_RETRIES=1", "AGENT_TOOL_RETRIES=0", "LLM_FALLBACK_MODEL=backup", "LLM_FALLBACK_API_KEY=ignored-fallback-key",
       "AGENT_TRACE_ENABLED=false", "AGENT_RUN_DATA_DIR=./data/custom-runs", "AGENT_TRACE_MAX_EVENTS=128",
       "ANSWER_REVIEW_ENABLED=false", "ANSWER_REVIEW_MODEL=glm-4.7", "ANSWER_REVIEW_TIMEOUT_MS=45000", "ANSWER_REVIEW_MAX_REVISIONS=2",
-      "ANSWER_REVIEW_API_KEY=ignored-review-key",
+      "ANSWER_REVIEW_API_KEY=ignored-review-key", "ANSWER_REVIEW_THINKING=disabled",
       "SOLUTION_SKILLS_ENABLED=true", "SOLUTION_SKILLS_DATABASE_URL=postgresql://file:secret@localhost/private",
       "SOLUTION_SKILLS_EMBEDDING_API_KEY=ignored-skill-key",
     ].join("\n"));
@@ -54,6 +54,7 @@ test("backend env file restores port/origin but never supplies credentials", asy
     assert.equal(env.OPENAI_API_KEY, undefined);
     assert.equal(config.verification.enabled, false);
     assert.equal(config.verification.model, "glm-4.7");
+    assert.equal(config.verification.thinking, "disabled");
     assert.equal(config.verification.timeoutMs, 45000);
     assert.equal(config.verification.maxRevisions, 2);
     assert.equal(config.verification.apiKey, undefined);
@@ -66,6 +67,12 @@ test("backend env file restores port/origin but never supplies credentials", asy
     assert.deepEqual(terminal, { PORT: "8090", LLM_API_KEY: "terminal-key", INTERNAL_API_TOKEN: "terminal-token" });
   } finally { // Keep test artifacts: repository policy forbids batch deletion.
   }
+});
+
+test("answer review reasoning remains enabled when the solver uses fast responses", () => {
+    const config = loadConfig({ NODE_ENV: "test", GLM_THINKING: "disabled" });
+    assert.equal(config.math.thinking, "disabled"); assert.equal(config.verification.thinking, "enabled");
+    assert.throws(() => loadConfig({ NODE_ENV: "test", ANSWER_REVIEW_THINKING: "auto" }), /Invalid answer review/);
 });
 
 test("review configuration validates model, limits and credential isolation", () => {

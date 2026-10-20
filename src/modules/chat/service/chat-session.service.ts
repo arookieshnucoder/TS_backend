@@ -7,13 +7,15 @@ import type { RunRecorder, RunStatus, RunTraceStore } from "../../observability/
 import { failureCode } from "../../harness/recovery.js";
 import { abortable } from "../../harness/cancellation.js";
 import { identity } from "../../auth/identity.js";
+import { BackgroundWorkQueue, type BackgroundWork } from "./background-work.js";
 
 /** 会话业务服务，串行处理同一会话的发送，保存结果并处理超时、失败和标题更新。 */
 export class ChatSessionService {
     private readonly activeSessions = new Set<string>();
     private readonly initializations = new Map<string, Promise<void>>();
     constructor(private readonly repository: ChatSessionRepository, private readonly harness: ChatAgent,
-        private readonly errors: ErrorContainer = errorContainer, private readonly timeoutMs = 120000, private readonly runs?: RunTraceStore) { }
+        private readonly errors: ErrorContainer = errorContainer, private readonly timeoutMs = 120000, private readonly runs?: RunTraceStore,
+        private readonly background = new BackgroundWorkQueue()) { }
 
     private initialize(): Promise<void> {
         const scope = identity.getStore()?.userId ?? "";
@@ -55,7 +57,10 @@ export class ChatSessionService {
         // Reserve before reading disk; only this execution may finish the session.
         if (this.activeSessions.has(id)) return this.errors.fail("SESSION_BUSY");
         this.activeSessions.add(id);
+        const releaseForeground = this.background.foreground();
         let trace: RunRecorder | undefined;
+        let deferredTrace = false;
+        let deferredMaintenance: BackgroundWork[] = [];
         try {
             const session = await this.getById(id);
             const message: ChatMessage = { id: generateId(), role: "user", content };
@@ -71,13 +76,19 @@ export class ChatSessionService {
             await this.repository.save(session);
             try {
                 runSignal.throwIfAborted();
-                const result = await this.harness.run(session, message, runSignal, trace ? { runId: trace.id, event: trace.event, workflow: snapshot => trace!.workflow(snapshot) } : undefined);
+                const maintenance: BackgroundWork[] = [];
+                const result = await this.harness.run(session, message, runSignal, { runId: trace?.id ?? requestId,
+                    event: trace?.event ?? (() => {}), ...(trace ? { workflow: snapshot => trace!.workflow(snapshot) } : {}),
+                    deferMaintenance: work => maintenance.push(work) });
                 runSignal.throwIfAborted();
                 if (typeof result.content !== "string" || !result.content.trim()) throw new Error("Empty agent answer");
                 trace?.event("answer.ready", { content: result.content, modelTurns: result.modelTurns, toolCalls: result.toolCalls });
                 session.messages = [...session.messages, message,
                     { id: generateId(), role: "assistant" as const, content: result.content }];
                 session.sessionStatus = "finished";
+                // Retain work only for this successfully reviewed answer. Submission happens
+                // below after persistence, so failed/cancelled answers cannot publish experience.
+                deferredMaintenance = maintenance;
             } catch (error) {
                 status = runSignal.aborted ? (runSignal.reason?.name === "TimeoutError" ? "timed_out" : "cancelled") : "failure";
                 trace?.event("session.failed", { code: failureCode(error), status });
@@ -89,11 +100,27 @@ export class ChatSessionService {
             await this.repository.save(session);
             trace?.event("session.saved", { sessionStatus: session.sessionStatus });
             if (status === "success") await this.updateTitle(session, signal, trace);
-            if (trace) await this.runs!.finish(trace, status, { assistantMessageId: status === "success" ? session.messages.at(-1)?.id : undefined });
+            const completionFields = { assistantMessageId: status === "success" ? session.messages.at(-1)?.id : undefined };
+            if (status === "success" && deferredMaintenance.length) {
+                const recorder = trace;
+                const task = this.background.enqueue(async scope => {
+                    for (const work of deferredMaintenance) await work(scope);
+                });
+                if (task) {
+                    deferredTrace = true;
+                    // The trace stays available while maintenance runs, with answer.ready
+                    // recording user-visible latency separately from total maintenance time.
+                    void task.catch(() => recorder?.event("agent.skills.maintenance.failed", { reason: "cancelled_or_unavailable" }))
+                        .then(() => recorder && this.runs!.finish(recorder, "success", completionFields))
+                        .catch(() => {});
+                } else trace?.event("agent.skills.skipped", { reason: "maintenance_queue_full" });
+            }
+            if (trace && !deferredTrace) await this.runs!.finish(trace, status, completionFields);
             return session;
         } finally {
-            if (trace && !trace.finished) await this.runs!.finish(trace, "failure", { code: "PERSISTENCE_ERROR" });
-            this.activeSessions.delete(id);
+            try {
+                if (trace && !trace.finished && !deferredTrace) await this.runs!.finish(trace, "failure", { code: "PERSISTENCE_ERROR" });
+            } finally { this.activeSessions.delete(id); releaseForeground(); }
         }
     }
 

@@ -39,7 +39,7 @@ export function createEnglishChatAgent(model: AgentModel, config: AppConfig, log
                 original: original.passage.paragraphs.map((text, index) => ({ id: `P${index + 1}`, text })), questions: englishQuestions(original) }));
             const harness = new EnglishHarness(model, task, config.english.variant, config.context, logger, config.english.contextTokens, reviewed, config.english.workflow);
             return harness.run({ history: history.map(({ role, content }) => ({ role, content })), question: supplied ? englishQuestions(task) : current.content,
-                tools: [], metadata: { sessionId: session.id, messageId: current.id, runId: context?.runId, subject: "english" }, onEvent: context?.event }, signal);
+                tools: [], metadata: { sessionId: session.id, messageId: current.id, runId: context?.runId, subject: "english" }, onEvent: context?.event, deferMaintenance: context?.deferMaintenance }, signal);
         },
         async titleFor(session) { return `英语 · ${session.messages.find(m => m.role === "user")?.content.replace(/\s+/g, " ").slice(0, 24) ?? "新练习"}`; },
     };

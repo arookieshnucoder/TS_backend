@@ -29,7 +29,8 @@ function parseToolCalls(value: unknown): ToolCall[] {
 /** 只转换供应商协议；不猜工具名、不修补 JSON、不把隐藏推理当成最终答案。 */
 export class GlmModel implements AgentModel {
     get modelId() { return this.config.llmModel; }
-    constructor(private readonly config: LlmConfig, readonly thinking: "enabled" | "disabled" = "disabled") {}
+    constructor(private readonly config: LlmConfig, readonly thinking: "enabled" | "disabled" = "disabled",
+        private readonly options: { jsonOutput?: boolean } = {}) {}
     async turn(messages: AgentMessage[], tools: ToolDefinition[], signal?: AbortSignal, maxOutputTokens?: number): Promise<AgentTurn> {
         const current = [...messages].reverse().find(m => m.role === "user")?.content ?? "";
         // Harness 的标题/摘要显式指定纯文本输出上限；禁用推理，避免推理耗尽这个小预算。
@@ -39,6 +40,7 @@ export class GlmModel implements AgentModel {
             current.length > 1000 || /\(3\)|（3）|第2题|题2[：:]/.test(current) ? 4096 : 2048);
         const result = await request(this.config, "chat/completions", {
             model: this.config.llmModel, temperature: 0, max_tokens: outputBudget, thinking: { type: thinking },
+            ...(this.options.jsonOutput ? { response_format: { type: "json_object" } } : {}),
             messages: messages.map(m => ({ role: m.role, content: m.content,
                 ...(m.role === "assistant" && m.toolCalls?.length && m.reasoningContent ? { reasoning_content: m.reasoningContent } : {}),
                 ...(m.toolCallId ? { tool_call_id: m.toolCallId } : {}),

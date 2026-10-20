@@ -4,6 +4,7 @@
   "description": "",
   "main": "dist/server.js",
   "scripts": {
+    "benchmark:chat": "tsx scripts/benchmark-chat-latency.ts",
     "smoke:workflows:live": "tsx scripts/smoke-workflows.ts",
     "smoke:skills:live": "tsx scripts/smoke-solution-skills.ts",
     "smoke:skills:experience": "tsx scripts/study-experience.ts",
