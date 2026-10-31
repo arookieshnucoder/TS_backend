@@ -24,6 +24,7 @@ export interface AppConfig {
     auth: AuthConfig;
     verification: { enabled: boolean; model: string; baseUrl: string; apiKey?: string; timeoutMs: number; maxRevisions: number; thinking: "enabled" | "disabled" };
     schoolSubject: SchoolSubject | "auto";
+    subjectClassification: { model: string; timeoutMs: number; baseUrl: string; apiKey?: string };
     english: { variant: EnglishVariant; corpusPath: string; contextTokens: number; workflow: "direct" | "grounded"; thinking: "enabled" | "disabled" };
     reading: { variant: ReadingVariant; corpusPath: string; contextTokens: number };
     math: { variant: MathVariant | "general"; corpusPath: string; indexPath: string; submissionsPath: string; embeddingBaseUrl: string; thinking: "enabled" | "disabled" };
@@ -82,6 +83,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
     const mathVariant = env.MATH_AGENT_VARIANT ?? (nodeEnv === "test" ? "general" : "adaptive");
     if (!["general", ...ALL_MATH_VARIANTS].includes(mathVariant)) throw new Error("Invalid MATH_AGENT_VARIANT");
     const schoolSubject = env.SCHOOL_SUBJECT ?? "math";
+    const classifierModel = env.SUBJECT_CLASSIFIER_MODEL ?? "glm-4.5-air";
+    const classifierTimeout = Number(env.SUBJECT_CLASSIFIER_TIMEOUT_MS ?? "8000");
+    if (!/^glm-[a-z0-9.-]+$/i.test(classifierModel) || !Number.isSafeInteger(classifierTimeout) || classifierTimeout < 1 || classifierTimeout > 15000)
+        throw new Error("Invalid subject classifier configuration");
     const readingVariant = env.READING_AGENT_VARIANT ?? "adaptive";
     const readingContextTokens = Number(env.READING_CONTEXT_TOKENS ?? "1400");
     if (!["math", "chinese", "english", "auto"].includes(schoolSubject) || !READING_VARIANTS.includes(readingVariant as ReadingVariant) ||
@@ -105,6 +110,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
         if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Invalid LLM_BASE_URL");
     }
     const llmModel = env.LLM_MODEL ?? (mathVariant === "general" ? "deepseek-flash" : "glm-4.5-air");
+    const classifierBaseUrl = env.SUBJECT_CLASSIFIER_BASE_URL ?? (/^glm-/i.test(llmModel) ? llmBaseUrl : "https://open.bigmodel.cn/api/paas/v4");
+    const classifierUrl = new URL(classifierBaseUrl);
+    if (!["http:", "https:"].includes(classifierUrl.protocol) || classifierUrl.username || classifierUrl.password || classifierUrl.search || classifierUrl.hash)
+        throw new Error("Invalid SUBJECT_CLASSIFIER_BASE_URL");
+    const classifierApiKey = env.SUBJECT_CLASSIFIER_API_KEY ?? (classifierBaseUrl.replace(/\/$/, "") === llmBaseUrl.replace(/\/$/, "") ? env.LLM_API_KEY : undefined);
     const skillEmbeddingBase = env.SOLUTION_SKILLS_EMBEDDING_BASE_URL ?? "https://open.bigmodel.cn/api/paas/v4";
     const skillEmbeddingUrl = new URL(skillEmbeddingBase);
     if (skillEmbeddingUrl.protocol !== "https:" || skillEmbeddingUrl.username || skillEmbeddingUrl.password || skillEmbeddingUrl.search || skillEmbeddingUrl.hash)
@@ -146,6 +156,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = loadEnvironment()): AppConfi
         verification: { enabled: reviewEnabled === "true", model: reviewModel, baseUrl: reviewBaseUrl,
             apiKey: env.ANSWER_REVIEW_API_KEY || env.LLM_API_KEY, timeoutMs: reviewTimeoutMs, maxRevisions, thinking: reviewThinking as "enabled" | "disabled" },
         schoolSubject: schoolSubject as AppConfig["schoolSubject"],
+        subjectClassification: { model: classifierModel, timeoutMs: classifierTimeout, baseUrl: classifierBaseUrl, apiKey: classifierApiKey },
         english: { variant: englishVariant as EnglishVariant, contextTokens: englishContextTokens, workflow: englishWorkflow as "direct" | "grounded", thinking: englishThinking as "enabled" | "disabled",
             corpusPath: env.ENGLISH_CORPUS_PATH ?? fileURLToPath(new URL("../../evals/english/corpus.json", import.meta.url)) },
         reading: { variant: readingVariant as ReadingVariant, contextTokens: readingContextTokens,

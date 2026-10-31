@@ -17,7 +17,8 @@ import { GlmModel, GlmEmbeddings } from "../infrastructure/llm/glm-model.js";
 import type { MathOcrProvider } from "../modules/math/contracts.js";
 import { ReadingLibrary } from "../modules/reading/library.js";
 import { createReadingChatAgent } from "./reading-chat-agent.js";
-import { routeSchoolSubject } from "./school-subject.js";
+import { SubjectClassifier } from "../modules/subjects/subject-classifier.js";
+import { createSubjectRoutingAgent } from "./subject-routing-agent.js";
 import { withAnswerReview, mathReviewEvidence } from "./answer-review.js";
 import { EnglishLibrary } from "../modules/english/library.js";
 import { createEnglishChatAgent } from "./english-chat-agent.js";
@@ -50,7 +51,7 @@ export interface AppDependencies {
 }
 
 
-export type DependencyOverrides = Partial<AppDependencies> & { authStore?: AuthStore; agentModel?: AgentModel; reviewerModel?: AgentModel; fallbackModels?: NamedAgentModel[] };
+export type DependencyOverrides = Partial<AppDependencies> & { authStore?: AuthStore; agentModel?: AgentModel; classifierModel?: AgentModel; reviewerModel?: AgentModel; fallbackModels?: NamedAgentModel[] };
 
 /** 主模型与备用模型采用同一供应商选择规则，GLM 不会在降级时丢失推理协议字段。 */
 function createModel(provider: LlmConfig, thinking: "enabled" | "disabled", errors: ErrorContainer): AgentModel {
@@ -58,7 +59,7 @@ function createModel(provider: LlmConfig, thinking: "enabled" | "disabled", erro
 }
 
 export function createDependencies(overrides: DependencyOverrides = {}, config: AppConfig = loadConfig()): AppDependencies {
-    const allowed = new Set(["workflows", "solutionSkills", "auth", "authStore", "errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "reviewerModel", "mcp", "fallbackModels", "runs", "mathOcr", "readingLibrary", "englishLibrary"]);
+    const allowed = new Set(["workflows", "solutionSkills", "auth", "authStore", "errors", "chatSessionRepository", "logger", "agentHarness", "agentModel", "classifierModel", "reviewerModel", "mcp", "fallbackModels", "runs", "mathOcr", "readingLibrary", "englishLibrary"]);
     for (const key of Object.keys(overrides)) {
         if (!allowed.has(key)) throw new TypeError(`Unsupported dependency override: ${key}`);
         if (overrides[key as keyof DependencyOverrides] == null) throw new TypeError(`Dependency override ${key} must not be null or undefined`);
@@ -66,6 +67,8 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
     if (overrides.agentHarness !== undefined && overrides.agentModel !== undefined) throw new TypeError("Inject either agentHarness or agentModel, not both");
     if (overrides.agentHarness !== undefined && overrides.fallbackModels !== undefined) throw new TypeError("Fallbacks belong to the injected harness");
     if (overrides.agentHarness !== undefined && overrides.reviewerModel !== undefined) throw new TypeError("Reviewers belong to the injected harness");
+    if (overrides.agentHarness !== undefined && overrides.classifierModel !== undefined) throw new TypeError("Classifiers belong to the injected harness");
+    if (overrides.classifierModel !== undefined && typeof overrides.classifierModel.turn !== "function") throw new TypeError("Invalid classifier model");
     if (overrides.reviewerModel !== undefined && typeof overrides.reviewerModel.turn !== "function") throw new TypeError("Invalid reviewer model");
     if (overrides.agentHarness !== undefined && (typeof overrides.agentHarness.run !== "function" || typeof overrides.agentHarness.titleFor !== "function"))
         throw new TypeError("agentHarness must implement run and titleFor");
@@ -77,7 +80,7 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
     const provider: LlmConfig = { llmApiKey: config.llmApiKey, llmModel: config.llmModel, llmBaseUrl: config.llmBaseUrl, llmTimeoutMs: config.llmTimeoutMs };
     const mcp = overrides.mcp ?? new McpManager(config.mcp.configFile, log, undefined, config.mcp.timeoutMs);
     const runs = overrides.runs ?? (config.observability.enabled ? new RunTraceStore(config.observability.dataDir, log,
-        [config.llmApiKey, config.verification.apiKey, config.llmFallback?.apiKey, config.mcp.adminToken], config.observability.maxEvents) : undefined);
+        [config.llmApiKey, config.subjectClassification.apiKey, config.verification.apiKey, config.llmFallback?.apiKey, config.mcp.adminToken], config.observability.maxEvents) : undefined);
     const readingLibrary = overrides.readingLibrary ?? new ReadingLibrary(config.reading.corpusPath);
     const englishLibrary = overrides.englishLibrary ?? new EnglishLibrary(config.english.corpusPath);
     const solutionSkills = overrides.solutionSkills ?? (config.skills.enabled ? new SolutionSkillLibrary(new PostgresSkillStore(config.skills.databaseUrl), config.skills.directory,
@@ -104,22 +107,16 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
             { ...withAnswerReview(harnessOptions, model, reviewer, config, "math", mathReviewEvidence),
                 excludedPaths: [config.sessionDataDir, config.observability.dataDir, config.mcp.configFile, config.skills.directory],
                 additionalTools: (_session, signal, context) => mcp.tools(signal, context?.event) });
-        if (config.schoolSubject === "math") agentHarness = createBaseAgent();
-        else {
-            const reading = createReadingChatAgent(model, config, log, readingLibrary, harnessOptions, reviewer);
-            const englishModel = overrides.agentModel ?? createModel(provider, config.english.thinking, errors);
-            const english = createEnglishChatAgent(englishModel, config, log, englishLibrary,
-                withSolutionSkills({ ...config.harness, fallbackModels: fallbacks(config.english.thinking) }, solutionSkills, englishModel, skillReviewer), reviewer);
-            let base: ChatAgent | undefined;
-            const select = (content: string, history: readonly { role: string; content: string }[]) => {
-                const subject = config.schoolSubject === "auto" ? routeSchoolSubject(content, history) : config.schoolSubject;
-                return subject === "english" ? english : subject === "chinese" ? reading : base ??= createBaseAgent();
-            };
-            agentHarness = {
-                run: (session, current, signal, context) => select(current.content, session.messages).run(session, current, signal, context),
-                titleFor: (session, signal) => select([...session.messages].reverse().find(message => message.role === "user")?.content ?? "", session.messages).titleFor(session, signal),
-            };
-        }
+        const reading = createReadingChatAgent(model, config, log, readingLibrary, harnessOptions, reviewer);
+        const englishModel = overrides.agentModel ?? createModel(provider, config.english.thinking, errors);
+        const english = createEnglishChatAgent(englishModel, config, log, englishLibrary,
+            withSolutionSkills({ ...config.harness, fallbackModels: fallbacks(config.english.thinking) }, solutionSkills, englishModel, skillReviewer), reviewer);
+        const classifier = new SubjectClassifier(overrides.classifierModel ?? new GlmModel({ ...provider,
+            llmModel: config.subjectClassification.model, llmTimeoutMs: config.subjectClassification.timeoutMs,
+            llmBaseUrl: config.subjectClassification.baseUrl, llmApiKey: config.subjectClassification.apiKey }, "disabled", { jsonOutput: true }), config.subjectClassification.timeoutMs);
+        const observed = (agent: ChatAgent) => workflows && runs ? withWorkflowTrace(agent, workflows, config) : agent;
+        agentHarness = createSubjectRoutingAgent(classifier, { math: observed(createBaseAgent()), chinese: observed(reading), english: observed(english) },
+            config.schoolSubject === "auto" ? "math" : config.schoolSubject);
     }
     return {
         workflows,
@@ -133,6 +130,6 @@ export function createDependencies(overrides: DependencyOverrides = {}, config: 
         errors,
         chatSessionRepository: repository,
         logger: log,
-        agentHarness: workflows && runs && !overrides.agentHarness ? withWorkflowTrace(agentHarness, workflows, config) : agentHarness,
+        agentHarness,
     };
 }

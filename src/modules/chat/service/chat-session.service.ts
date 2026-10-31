@@ -8,6 +8,7 @@ import { failureCode } from "../../harness/recovery.js";
 import { abortable } from "../../harness/cancellation.js";
 import { identity } from "../../auth/identity.js";
 import { BackgroundWorkQueue, type BackgroundWork } from "./background-work.js";
+import type { SchoolSubject } from "../../subjects/contracts.js";
 
 /** 会话业务服务，串行处理同一会话的发送，保存结果并处理超时、失败和标题更新。 */
 export class ChatSessionService {
@@ -52,7 +53,7 @@ export class ChatSessionService {
         await this.initialize();
         return this.repository.findAll();
     }
-    async send(id: string, content: string, signal?: AbortSignal, requestId = generateId()): Promise<ChatSession> {
+    async send(id: string, content: string, signal?: AbortSignal, requestId = generateId(), preferredSubject?: SchoolSubject, clientRequestId?: string): Promise<ChatSession> {
         await this.initialize();
         // Reserve before reading disk; only this execution may finish the session.
         if (this.activeSessions.has(id)) return this.errors.fail("SESSION_BUSY");
@@ -71,20 +72,44 @@ export class ChatSessionService {
             session.sessionStatus = "pending";
             session.sessionError = null;
             session.modelRequestId = requestId;
+            session.clientRequestId = clientRequestId;
+            if (this.harness.resolveSubject) session.subject = undefined;
             session.updatedAt = new Date();
             trace?.event("session.pending");
-            await this.repository.save(session);
+            // Start the isolated classifier alongside the pending write. Subject-specific
+            // tools and solving remain gated until both preparation tasks finish.
+            const classifyStarted = Date.now();
+            if (this.harness.resolveSubject) trace?.event("subject.classification.started");
+            const prepared = await Promise.allSettled([
+                this.repository.save(session),
+                this.harness.resolveSubject ? abortable(() => this.harness.resolveSubject!(session, message, runSignal, preferredSubject), runSignal) : Promise.resolve(undefined),
+            ]);
+            const pendingWrite = prepared[0]!;
+            if (pendingWrite.status === "rejected") throw pendingWrite.reason;
             try {
                 runSignal.throwIfAborted();
+                const classification = prepared[1]!;
+                if (classification.status === "rejected") {
+                    trace?.event("subject.classification.failed", { durationMs: Date.now() - classifyStarted, code: failureCode(classification.reason) });
+                    throw classification.reason;
+                }
+                if (this.harness.resolveSubject) {
+                    session.subject = classification.value;
+                    message.subject = classification.value;
+                    trace?.event("subject.classification.completed", { subject: classification.value ?? "unknown", preferredSubject, durationMs: Date.now() - classifyStarted });
+                    await this.repository.save(session);
+                    runSignal.throwIfAborted();
+                }
                 const maintenance: BackgroundWork[] = [];
                 const result = await abortable(() => this.harness.run(session, message, runSignal, { runId: trace?.id ?? requestId,
+                    subject: session.subject, subjectResolved: !!this.harness.resolveSubject, preferredSubject,
                     event: trace?.event ?? (() => {}), ...(trace ? { workflow: snapshot => trace!.workflow(snapshot) } : {}),
                     deferMaintenance: work => maintenance.push(work) }), runSignal);
                 runSignal.throwIfAborted();
                 if (typeof result.content !== "string" || !result.content.trim()) throw new Error("Empty agent answer");
                 trace?.event("answer.ready", { content: result.content, modelTurns: result.modelTurns, toolCalls: result.toolCalls });
                 session.messages = [...session.messages, message,
-                    { id: generateId(), role: "assistant" as const, content: result.content }];
+                    { id: generateId(), role: "assistant" as const, content: result.content, ...(message.subject ? { subject: message.subject } : {}) }];
                 session.sessionStatus = "finished";
                 // Retain work only for this successfully reviewed answer. Submission happens
                 // below after persistence, so failed/cancelled answers cannot publish experience.

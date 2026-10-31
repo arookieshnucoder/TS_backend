@@ -21,6 +21,7 @@ import { TokenBudget } from "../src/modules/harness/context/tokens.js";
 import { createEnglishChatAgent } from "../src/bootstrap/english-chat-agent.js";
 import { routeSchoolSubject } from "../src/bootstrap/school-subject.js";
 import { createDependencies } from "../src/bootstrap/container.js";
+import { subjectModel } from "./helpers.js";
 import { loadConfig } from "../src/config/env.js";
 import { createApp } from "../src/app.js";
 import { ReadingLibrary } from "../src/modules/reading/library.js";
@@ -172,7 +173,7 @@ test("English errors never load another subject, call its reviewer, or silently 
     const library = new EnglishLibrary("missing"), reading = new ReadingLibrary("missing");
     reading.corpus = async () => { assert.fail("Chinese corpus must not load"); };
     let calls = 0;
-    const dependencies = createDependencies({ englishLibrary: library, readingLibrary: reading, logger, chatSessionRepository: new InMemoryChatSessionRepository(),
+    const dependencies = createDependencies({ classifierModel: subjectModel("english"), englishLibrary: library, readingLibrary: reading, logger, chatSessionRepository: new InMemoryChatSessionRepository(),
         agentModel: { async turn(messages) { calls++; assert.match(messages[0]!.content, /初三学生的英语/); throw new Error("English provider unavailable"); } },
         reviewerModel: { async turn() { assert.fail("English semantic review is intentionally absent"); } },
     }, { ...config, schoolSubject: "auto", verification: { ...config.verification, enabled: true } });

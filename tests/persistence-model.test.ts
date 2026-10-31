@@ -12,7 +12,7 @@ import { createDependencies } from "../src/bootstrap/container.js";
 import { JsonChatSessionRepository } from "../src/infrastructure/persistence/json/json-chat-session.repository.js";
 import { LangChainChatModel } from "../src/infrastructure/llm/langchain-chat-model.js";
 import { ChatSessionService } from "../src/modules/chat/service/chat-session.service.js";
-import { testHarness, textModel } from "./helpers.js";
+import { subjectModel, testHarness, textModel } from "./helpers.js";
 
 test("JSON HTTP sessions survive restart; real LangChain adapter sends managed context without persisting credentials", async () => {
   const directory = await mkdtemp(join(tmpdir(), "chat-json-"));
@@ -33,7 +33,7 @@ test("JSON HTTP sessions survive restart; real LangChain adapter sends managed c
     LLM_MODEL: "deepseek-flash", LLM_BASE_URL: `http://127.0.0.1:${(upstream.address() as AddressInfo).port}` });
   let server: ReturnType<ReturnType<typeof createApp>["listen"]> | undefined;
   async function start() {
-    server = createApp(config, createDependencies({logger:{info(){},error(){}}}, config)).listen(0, "127.0.0.1");
+    server = createApp(config, createDependencies({classifierModel: subjectModel("math"), logger:{info(){},error(){}}}, config)).listen(0, "127.0.0.1");
     await once(server, "listening");
     return `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/chat/sessions`;
   }

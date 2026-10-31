@@ -11,6 +11,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { createDependencies } from "../src/bootstrap/container.js";
+import { subjectModel } from "./helpers.js";
 import { InMemoryChatSessionRepository } from "../src/infrastructure/persistence/memory/in-memory-chat-session.repository.js";
 const corpus = englishFixture(), task = englishTask(corpus.passages[0]!, corpus.knowledge);
 task.questions.forEach(q => q.kind = "grammar");
@@ -107,7 +108,7 @@ test("English GLM thinking configuration is independent of mathematics and match
             const settings = loadConfig({ NODE_ENV: "test", SCHOOL_SUBJECT: "english", LLM_MODEL: "glm-4.5-air", GLM_THINKING: "enabled",
                 ENGLISH_THINKING: thinking, LLM_API_KEY: "local-fixture-only", LLM_BASE_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}` });
             assert.equal(settings.math.thinking, "enabled"); assert.equal(settings.english.thinking, thinking ?? "disabled");
-            const dependencies = createDependencies({ logger, chatSessionRepository: new InMemoryChatSessionRepository() }, settings);
+            const dependencies = createDependencies({ classifierModel: subjectModel("english"), logger, chatSessionRepository: new InMemoryChatSessionRepository() }, settings);
             const session = { id: "s", requestId: "r", title: "t", messages: [], createdAt: new Date(), updatedAt: new Date(), sessionStatus: "finished" as const, sessionError: null };
             const result = await dependencies.agentHarness.run(session, { id: "q", role: "user", content: "[英语]\nHe has lived here ___ 2020.\nA. since\nB. for\nC. at\nD. from" });
             assert.equal(englishChoice(result.content, 1), "A");

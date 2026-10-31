@@ -126,7 +126,8 @@ export function workflowTemplate(subject: WorkflowSubject): WorkflowSnapshot {
 
 /** Explicit allowlist of real settings; never serialize AppConfig or process.env to the browser. */
 export function runtimeSnapshot(config: AppConfig, subject: WorkflowSubject): RuntimeSnapshot {
-    return { solverModel: config.llmModel, reviewerModel: config.verification.model, reviewEnabled: config.verification.enabled,
+    return { solverModel: config.llmModel, classifierModel: config.subjectClassification.model, classifierTimeoutMs: config.subjectClassification.timeoutMs,
+        reviewerModel: config.verification.model, reviewEnabled: config.verification.enabled,
         maxRevisions: config.verification.maxRevisions, maxReviewAttempts: config.verification.maxRevisions + 1, timeoutMs: config.llmTimeoutMs,
         maxInputTokens: config.context.maxInputTokens, maxToolSteps: config.context.maxToolSteps,
         maxCallsPerStep: config.harness.maxCallsPerStep, maxProtocolRepairs: config.harness.maxProtocolRepairs,

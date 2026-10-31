@@ -4,6 +4,7 @@ import { atomicWriteFile } from "../../../common/persistence/atomic-write.js";
 import { isSessionStatus } from "../../../modules/chat/domain/session-status.js";
 import type { ChatSession } from "../../../modules/chat/entity/chat-session.entity.js";
 import type { ChatSessionRepository } from "../../../modules/chat/repository/chat-session.repository.js";
+import { isSchoolSubject } from "../../../modules/subjects/subject-classifier.js";
 
 // A single backend process owns the directory. Atomic replacement prevents partial reads.
 /** 将会话保存为 JSON 文件，读取时校验实体并还原日期类型。 */
@@ -25,7 +26,10 @@ export class JsonChatSessionRepository implements ChatSessionRepository {
             if (!value || typeof value.id !== "string" || typeof value.requestId !== "string"
                 || typeof value.title !== "string" || !Array.isArray(value.messages)
                 || !value.messages.every((m: any) => m && typeof m.id === "string"
-                    && ["user", "assistant"].includes(m.role) && typeof m.content === "string")
+                    && ["user", "assistant"].includes(m.role) && typeof m.content === "string"
+                    && (m.subject === undefined || isSchoolSubject(m.subject)))
+                || (value.subject !== undefined && !isSchoolSubject(value.subject))
+                || (value.clientRequestId !== undefined && (typeof value.clientRequestId !== "string" || !/^[a-zA-Z0-9-]{1,64}$/.test(value.clientRequestId)))
                 || !Number.isFinite(Date.parse(value.createdAt)) || !Number.isFinite(Date.parse(value.updatedAt))) {
                 throw new Error("Invalid session file");
             }

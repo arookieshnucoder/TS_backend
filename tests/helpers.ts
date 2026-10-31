@@ -6,6 +6,11 @@ import { TokenBudget } from "../src/modules/harness/context/tokens.js";
 import { LocalMemorySearch } from "../src/infrastructure/llm/memory-search.js";
 import type { AgentMessage } from "../src/modules/agent/contracts.js";
 
+/** Keep solver fixtures independent of the new mandatory classification call. */
+export function subjectModel(subject: "math" | "chinese" | "english"): AgentModel {
+  return { async turn() { return { content: JSON.stringify({ subject }), toolCalls: [] }; } };
+}
+
 /** A deterministic provider fixture implementing the same mandatory turn protocol. */
 export function textModel(generate: (messages: AgentMessage[], signal?: AbortSignal, maxOutputTokens?: number) => Promise<string>): AgentModel {
   return { async turn(messages, _tools, signal, maxOutputTokens) {

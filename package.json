@@ -6,6 +6,8 @@
   "scripts": {
     "benchmark:chat": "tsx scripts/benchmark-chat-latency.ts",
     "smoke:workflows:live": "tsx scripts/smoke-workflows.ts",
+    "smoke:subjects:live": "tsx scripts/smoke-subject-routing.ts",
+    "cleanup:test-data": "tsx scripts/cleanup-subject-test-data.ts",
     "smoke:skills:live": "tsx scripts/smoke-solution-skills.ts",
     "smoke:skills:experience": "tsx scripts/study-experience.ts",
     "math:download": "powershell -NoProfile -File scripts/download-math.ps1",

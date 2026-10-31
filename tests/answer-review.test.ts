@@ -13,6 +13,7 @@ import { loadConfig } from "../src/config/env.js";
 import { createMathProfile } from "../src/modules/math/profile.js";
 import { createReadingChatAgent } from "../src/bootstrap/reading-chat-agent.js";
 import { createDependencies } from "../src/bootstrap/container.js";
+import { subjectModel } from "./helpers.js";
 import { ALL_MATH_VARIANTS } from "../src/modules/math/contracts.js";
 import { ReadingLibrary } from "../src/modules/reading/library.js";
 import { readingTask } from "../src/modules/reading/contracts.js";
@@ -146,7 +147,7 @@ test("configured GLM models remain separate on the real HTTP adapter and feedbac
             ANSWER_REVIEW_ENABLED: "true", ANSWER_REVIEW_MODEL: "glm-4.7", ANSWER_REVIEW_BASE_URL: baseUrl, AGENT_TRACE_ENABLED: "false" });
         const library = new ReadingLibrary("unused"), corpus = readingFixture();
         library.question = async () => readingTask(corpus.passages[0]!, corpus.knowledge.slice(0, 1));
-        const dependencies = createDependencies({ chatSessionRepository: new InMemoryChatSessionRepository(), readingLibrary: library, logger }, settings);
+        const dependencies = createDependencies({ classifierModel: subjectModel("chinese"), chatSessionRepository: new InMemoryChatSessionRepository(), readingLibrary: library, logger }, settings);
         const result = await dependencies.agentHarness.run(session, { id: "q", role: "user", content: "[语文题:reading-ab12-q1]" }) as AgentResult;
         assert.equal(result.content, "corrected"); assert.equal(result.review?.status, "passed");
         assert.deepEqual(bodies.map(body => body.model), ["glm-4.5-air", "glm-4.7", "glm-4.5-air", "glm-4.7"]);

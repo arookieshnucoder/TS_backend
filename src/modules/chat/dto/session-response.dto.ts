@@ -10,6 +10,8 @@ export function toSessionResponse(session: ChatSession): SessionResponseDto {
         id: session.id, title: session.title, createdAt: session.createdAt.toISOString(),
         updatedAt: session.updatedAt.toISOString(), messages: session.messages,
         modelRequestId: session.modelRequestId ?? null,
+        ...(session.subject ? { subject: session.subject } : {}),
+        ...(session.clientRequestId ? { clientRequestId: session.clientRequestId } : {}),
         sessionStatus: session.sessionStatus, sessionError: session.sessionError
     };
 }

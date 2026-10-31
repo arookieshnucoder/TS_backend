@@ -4,12 +4,13 @@ import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { createApp } from "../src/app.js";
 import { createDependencies } from "../src/bootstrap/container.js";
+import { subjectModel } from "./helpers.js";
 import { loadConfig } from "../src/config/env.js";
 import { InMemoryChatSessionRepository } from "../src/infrastructure/persistence/memory/in-memory-chat-session.repository.js";
 
 test("model failure is an actual HTTP 400 JSON response, even if client asks for the removed stream format",async()=>{
   const config=loadConfig({NODE_ENV:"test"});
-  const server=createApp(config,createDependencies({chatSessionRepository:new InMemoryChatSessionRepository(),
+  const server=createApp(config,createDependencies({classifierModel: subjectModel("math"), chatSessionRepository:new InMemoryChatSessionRepository(),
     agentModel:{async turn(){throw Object.assign(new Error("private-key"),{status:401})}},logger:{info(){},error(){}}},config)).listen(0,"127.0.0.1");
   await once(server,"listening");
   const base=`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/chat/sessions`;

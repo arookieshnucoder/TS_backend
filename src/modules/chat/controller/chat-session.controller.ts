@@ -5,6 +5,7 @@ import type { ChatSessionService } from "../service/chat-session.service.js";
 import { parseCreateSessionDto } from "../dto/create-session.dto.js";
 import { toSessionResponse } from "../dto/session-response.dto.js";
 import { sendSessionResult } from "../dto/session-result-response.js";
+import { isSchoolSubject } from "../../subjects/subject-classifier.js";
 
 /** 聊天 HTTP 控制器，验证输入并把会话服务结果转换为响应。 */
 export class ChatSessionController {
@@ -16,6 +17,12 @@ export class ChatSessionController {
     };
     readonly send: RequestHandler<{ id: string }> = async (request, response) => {
         const content = request.body?.content;
+        const preferredSubject = request.body?.preferredSubject;
+        const clientRequestId = request.body?.clientRequestId;
+        if (clientRequestId !== undefined && (typeof clientRequestId !== "string" || !/^[a-zA-Z0-9-]{1,64}$/.test(clientRequestId)))
+            return this.errors.fail("VALIDATION_ERROR", "clientRequestId must contain 1 to 64 letters, digits or hyphens");
+        if (preferredSubject !== undefined && !isSchoolSubject(preferredSubject))
+            return this.errors.fail("VALIDATION_ERROR", "preferredSubject must be math, chinese or english");
         if (typeof content !== "string" || !content.trim() || content.trim().length > 12000) {
             return this.errors.fail("VALIDATION_ERROR", "content must contain 1 to 12000 characters");
         }
@@ -23,7 +30,7 @@ export class ChatSessionController {
         const onClose = () => { if (!response.writableEnded) abort.abort(); };
         response.on("close", onClose);
         try {
-            const session = await this.service.send(request.params.id, content.trim(), abort.signal, response.locals.requestId);
+            const session = await this.service.send(request.params.id, content.trim(), abort.signal, response.locals.requestId, preferredSubject, clientRequestId);
             if (!response.destroyed) sendSessionResult(response, session);
         } finally { response.off("close", onClose); }
     };

@@ -24,7 +24,7 @@ export interface WorkflowNode { id: string; type: NodeType; position: { x: numbe
 export interface WorkflowEdge { id: string; source: string; target: string; sourceHandle: string; targetHandle: string; label: string }
 export interface WorkflowGraph { schemaVersion: 1; nodes: WorkflowNode[]; edges: WorkflowEdge[] }
 export type WorkflowSubject = "math" | "chinese" | "english" | "general";
-export type RuntimeSnapshot = { solverModel: string; reviewerModel: string; reviewEnabled: boolean; maxRevisions: number; timeoutMs: number; maxInputTokens: number; maxToolSteps: number; skillsEnabled: boolean; subject: string; variant: string; instructions: string; workflow?: string; maxReviewAttempts: number; maxCallsPerStep: number; maxProtocolRepairs: number; modelRetries: number; toolRetries: number; modelAttemptTimeoutMs: number; toolTimeoutMs: number };
+export type RuntimeSnapshot = { solverModel: string; classifierModel: string; classifierTimeoutMs: number; reviewerModel: string; reviewEnabled: boolean; maxRevisions: number; timeoutMs: number; maxInputTokens: number; maxToolSteps: number; skillsEnabled: boolean; subject: string; variant: string; instructions: string; workflow?: string; maxReviewAttempts: number; maxCallsPerStep: number; maxProtocolRepairs: number; modelRetries: number; toolRetries: number; modelAttemptTimeoutMs: number; toolTimeoutMs: number };
 export interface WorkflowSnapshot { id: string; title: string; description: string; subject: WorkflowSubject; revision: number; graph: WorkflowGraph }
 export interface WorkflowRecord extends WorkflowSnapshot { publishedRevision: number | null; updatedAt: string; updatedBy: string }
 export interface WorkflowVersion extends WorkflowSnapshot { publishedAt: string; publishedBy: string }

@@ -14,6 +14,7 @@ import { createMemoryTools } from "../modules/chat/service/memory-tools.js";
 import { createWorkspaceTools } from "../modules/harness/workspace-tools.js";
 import { mathAnalyzeTool, mathCalculateTool } from "../modules/math/task-tools.js";
 import { taskPlanTool } from "../modules/harness/task-tools.js";
+import { subjectHistory } from "./school-subject.js";
 
 /** 通用聊天入口的组装选项，可替换工作流、工具工厂和标题生成器。 */
 export interface ChatAgentOptions extends HarnessOptions {
@@ -57,7 +58,9 @@ export function createChatAgent(repository: ChatSessionRepository, model: AgentM
     const tokens = new TokenBudget(config);
     const title = new SessionTitleGenerator(model, tokens, config);
     const toolFactory: ChatToolFactory = options.tools ?? (async (session, signal, _context, runtime) => {
-        const candidates = (await repository.findAll()).filter(s => s.id !== session.id && s.messages.length)
+        const candidates = (await repository.findAll())
+            .map(s => session.subject ? { ...s, messages: subjectHistory(s.messages, session.subject) } : s)
+            .filter(s => s.id !== session.id && s.messages.length)
             .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()).slice(0, 10);
         signal?.throwIfAborted();
         return [...createMemoryTools(session, candidates, searchFactory(), runtime.compression, config),

@@ -12,6 +12,7 @@ import { defineReadOnlyTool } from "../src/modules/harness/define-tool.js";
 import { TokenBudget } from "../src/modules/harness/context/tokens.js";
 import { loadConfig } from "../src/config/env.js";
 import { createDependencies } from "../src/bootstrap/container.js";
+import { subjectModel } from "./helpers.js";
 import { InMemoryChatSessionRepository } from "../src/infrastructure/persistence/memory/in-memory-chat-session.repository.js";
 import type { AgentModel } from "../src/modules/agent/model.js";
 import type { AgentMessage } from "../src/modules/agent/contracts.js";
@@ -153,7 +154,7 @@ test("configured real LangChain primary retries HTTP 503 then uses the explicit 
     }).listen(0, "127.0.0.1"); await once(http, "listening");
     const cfg = loadConfig({ NODE_ENV: "test", LLM_API_KEY: "test-key", LLM_BASE_URL: `http://127.0.0.1:${(http.address() as AddressInfo).port}`,
         LLM_MODEL: "primary", LLM_FALLBACK_MODEL: "backup", AGENT_RETRY_BASE_DELAY_MS: "0", AGENT_RETRY_MAX_DELAY_MS: "0", AGENT_WORKSPACE_ENABLED: "false" });
-    const deps = createDependencies({ logger: { info() {}, error() {} }, chatSessionRepository: new InMemoryChatSessionRepository() }, cfg);
+    const deps = createDependencies({ classifierModel: subjectModel("math"), logger: { info() {}, error() {} }, chatSessionRepository: new InMemoryChatSessionRepository() }, cfg);
     try {
         const result = await deps.agentHarness.run({ id: "s", requestId: "r", title: "t", createdAt: new Date(), updatedAt: new Date(), messages: [], sessionStatus: "finished", sessionError: null }, { id: "q", role: "user", content: "q" });
         assert.equal(result.content, "real backup answer");

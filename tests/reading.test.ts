@@ -18,6 +18,7 @@ import { ModelProtocolError } from "../src/modules/agent/model.js";
 import { readingChoice } from "../src/modules/evaluation/reading-runner.js";
 import { routeSchoolSubject } from "../src/bootstrap/reading-chat-agent.js";
 import { createDependencies } from "../src/bootstrap/container.js";
+import { subjectModel } from "./helpers.js";
 import { createApp } from "../src/app.js";
 import { readingFixture } from "./reading-fixtures.js";
 import { ChatSessionService } from "../src/modules/chat/service/chat-session.service.js";
@@ -196,7 +197,7 @@ test("mathematical requests have identical model inputs before and after enablin
         const localConfig = loadConfig({ NODE_ENV: "test", SCHOOL_SUBJECT: subject, MATH_AGENT_VARIANT: "general", AGENT_WORKSPACE_ENABLED: "false", AGENT_TRACE_ENABLED: "false" });
         const repository = new InMemoryChatSessionRepository();
         const requests: unknown[] = [];
-        const deps = createDependencies({ logger, chatSessionRepository: repository, agentModel: { async turn(messages, tools) {
+        const deps = createDependencies({ logger, classifierModel: subjectModel("math"), chatSessionRepository: repository, agentModel: { async turn(messages, tools) {
             requests.push({ messages: structuredClone(messages), tools: structuredClone(tools) });
             return { content: messages[0]?.content.startsWith("Generate") ? "数学基础计算流程核验" : "2", toolCalls: [] };
         } } }, localConfig);
